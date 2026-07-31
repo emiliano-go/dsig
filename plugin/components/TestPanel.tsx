@@ -87,8 +87,9 @@ async function inspectLastOwnMessage(): Promise<Line[]> {
         out.push({
             ok: hidden.reason === "decodes",
             text: `invisible footer: ${hidden.marks} marks, ${hidden.carriers} carriers, ` +
-                `longest run ${hidden.longestRun}, header ${hidden.magicFound ? "found" : "missing"} ` +
-                `- ${hidden.reason}`
+                `longest run ${hidden.longestRun}` +
+                (hidden.declaredLength != null ? `, ${hidden.gotLength}/${hidden.declaredLength} bytes` : "") +
+                ` - ${hidden.reason}`
         });
     }
 

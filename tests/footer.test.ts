@@ -205,14 +205,23 @@ describe("hidden carriers", () => {
         }
     });
 
-    it("reports what survived when a footer is damaged", () => {
+    it("says how many bytes were lost when the stream is cut short", () => {
         const wire = embedHidden("hi", ts, sample);
         assert.equal(hiddenReport(wire).reason, "decodes");
 
-        // What the client did to the last build: the marks were cut down.
-        const truncated = wire.replace(/([\uFE00-\uFE0F]{4})/g, (run, _m, at) => (at < 10 ? run : ""));
-        const report = hiddenReport(truncated);
-        assert.ok(report.marks < report.expected);
-        assert.match(report.reason, /truncated|cut|stripped/);
+        // The failure that used to surface as an unverifiable signature: the
+        // header arrives, the tail does not.
+        const report = hiddenReport(wire.slice(0, wire.length - 40));
+        assert.equal(report.declaredLength, sample.length);
+        assert.ok(report.gotLength! < sample.length);
+        assert.match(report.reason, /the signature was cut: \d+ of \d+ bytes arrived/);
+    });
+
+    it("catches a footer whose bytes were altered rather than lost", () => {
+        const wire = embedHidden("hi", ts, sample);
+        // Flip one nibble in the middle of the signature.
+        const at = Math.floor(wire.length / 2);
+        const flipped = wire.slice(0, at) + String.fromCharCode(wire.charCodeAt(at) ^ 1) + wire.slice(at + 1);
+        if (flipped !== wire) assert.match(hiddenReport(flipped).reason, /checksum fails|cut/);
     });
 });

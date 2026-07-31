@@ -380,6 +380,10 @@ Two earlier attempts died on the live client: the Variation Selectors Supplement
 HANGUL JUNGSEONG FILLER as a zero-width carrier (carriers survived but the marks did not
 decode; the cause is not established).
 
+The header carries the signature's length and the stream ends in a checksum, so a footer
+damaged in transit reports itself as such ("N of M bytes arrived", "checksum fails") rather
+than surfacing, far away, as a signature that simply will not verify.
+
 The marks are *unobtrusive*, not secret: they stay in the stored message and any tool that
 reads raw text (a hex dump, another client without the plugin's render pass) can see them
 there. Selectors and carriers are also never part of signed content: `canonicalizeContent`
@@ -436,9 +440,12 @@ Only what cannot be recovered from the message itself travels:
 The *small grey line* style prefixes that with Discord's `-# ` subtext marker; the prefix is
 optional on the way in, so both styles parse identically. The *invisible* style carries the same
 two fields as two variation selectors per byte of
-`[magic 0xD5][version][6-byte signed_ts_ms][signature blob]`, four marks at a time on the
-message's own characters first and then on blank braille carriers appended after it. A message
-carries exactly one footer, and the last one wins.
+`[magic 0xD5][version][blob length][6-byte signed_ts_ms][signature blob][crc8]`, four marks at a
+time on the message's own characters first and then on blank braille carriers appended after it.
+The length byte and the trailing CRC-8 make damage legible instead of mysterious: a stream whose
+tail was cut reports "the signature was cut: N of M bytes arrived", altered bytes fail the
+checksum, and anything under 255 bytes (both signature shapes) fits. A message carries exactly
+one footer, and the last one wins.
 
 The blob is either a compact 72-byte form or a full OpenPGP signature packet; the first byte
 distinguishes them. Compact keeps `[tag][hash algo][created][digest prefix][r][s]` and rebuilds
@@ -596,7 +603,7 @@ dsig/
 npm test
 ```
 
-127 tests, run against the real `gpg` binary in a throwaway keyring under `/tmp`; your own
+128 tests, run against the real `gpg` binary in a throwaway keyring under `/tmp`; your own
 keyring is never touched, and the gpg-dependent suites skip themselves if gpg is missing. They
 cover canonicalisation idempotence, the base64 and footer codecs (all three footer shapes),
 byte-identical OpenPGP packet round-trips against real gpg output across SHA-256/384/512, the

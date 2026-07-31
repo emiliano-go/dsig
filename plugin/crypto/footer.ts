@@ -106,11 +106,17 @@ const VS_LAST = 0xfe0f;
 /** What Discord keeps on one base character. */
 const MARKS_PER_BASE = 4;
 const HIDDEN_MAGIC = 0xd5;
-const HIDDEN_VERSION = 1;
+const HIDDEN_VERSION = 2;
 /** Room for a millisecond timestamp until the year 10889. */
 const TS_BYTES = 6;
-/** magic, version, timestamp. */
-const HEADER_BYTES = 2 + TS_BYTES;
+/**
+ * magic, version, blob length, timestamp.
+ *
+ * The length and the trailing checksum are what make damage legible. Without
+ * them a stream whose header survived but whose tail was cut still "decoded",
+ * and the failure surfaced far away as an unverifiable signature.
+ */
+const HEADER_BYTES = 3 + TS_BYTES;
 
 /**
  * Draws nothing, is its own grapheme cluster, and is not a format character.
@@ -125,17 +131,31 @@ export const MARK_RE_G = /[\uFE00-\uFE0F]/g;
 /** Everything the hidden footer adds, for stripping it back out. */
 export const HIDDEN_ANYWHERE_G = /\u2800[\uFE00-\uFE0F]*/g;
 
+/** CRC-8, enough to tell a damaged stream from an intact one. */
+function crc8(bytes: ArrayLike<number>): number {
+    let crc = 0xff;
+    for (let i = 0; i < bytes.length; i++) {
+        crc ^= bytes[i];
+        for (let bit = 0; bit < 8; bit++) crc = crc & 0x80 ? ((crc << 1) ^ 0x31) & 0xff : (crc << 1) & 0xff;
+    }
+    return crc;
+}
+
 function marksFor(signedTsMs: number, blob: Uint8Array): string {
-    const bytes = new Uint8Array(HEADER_BYTES + blob.length);
+    if (blob.length > 0xff) throw new Error("dsig: signature too large for an invisible footer");
+
+    const bytes = new Uint8Array(HEADER_BYTES + blob.length + 1);
     bytes[0] = HIDDEN_MAGIC;
     bytes[1] = HIDDEN_VERSION;
+    bytes[2] = blob.length;
 
     let ts = signedTsMs;
-    for (let i = HEADER_BYTES - 1; i >= 2; i--) {
+    for (let i = HEADER_BYTES - 1; i >= 3; i--) {
         bytes[i] = ts % 256;
         ts = Math.floor(ts / 256);
     }
     bytes.set(blob, HEADER_BYTES);
+    bytes[bytes.length - 1] = crc8(bytes.subarray(0, bytes.length - 1));
 
     let out = "";
     for (const b of bytes) out += String.fromCharCode(VS_FIRST + (b >> 4), VS_FIRST + (b & 0x0f));
@@ -235,54 +255,78 @@ export function carriersNeeded(content: string, blobBytes: number): number {
 export function hiddenReport(raw: string): {
     carriers: number;
     marks: number;
-    expected: number;
     longestRun: number;
-    magicFound: boolean;
+    declaredLength?: number;
+    gotLength?: number;
     reason: string;
 } {
     const carriers = (raw.match(new RegExp(CARRIER, "g")) ?? []).length;
     const runs = raw.match(/[\uFE00-\uFE0F]+/g) ?? [];
     const marks = runs.reduce((n, run) => n + run.length, 0);
     const longestRun = runs.length ? Math.max(...runs.map(run => run.length)) : 0;
-    const stream = runs.join("");
-    const magicFound = stream.includes(MAGIC_PAIR);
-    const expected = carriers * MARKS_PER_BASE;
+    const parsed = parseHidden(raw);
 
-    const reason = decodeHidden(raw) ? "decodes"
-        : marks === 0 ? "every mark was stripped"
-        : carriers > 0 && marks < expected ? `carriers kept, marks cut to ${marks} where ${expected} should ride on carriers alone`
-        : !magicFound ? "marks survived but the header did not: the run was truncated"
-        : longestRun > MARKS_PER_BASE ? `a run of ${longestRun} marks is over the cap`
-        : "the marks are intact but decode to nothing valid";
-
-    return { carriers, marks, expected, longestRun, magicFound, reason };
+    return { carriers, marks, longestRun, declaredLength: parsed.declaredLength, gotLength: parsed.gotLength, reason: parsed.reason };
 }
 
-/** Inverse of `marksFor`; null for anything that is not a v1 hidden footer. */
-function decodeHidden(raw: string): { signedTsMs: number; blob: Uint8Array; } | null {
-    const run = (raw.match(MARK_RE_G) ?? []).join("");
+interface HiddenParse {
+    signedTsMs?: number;
+    blob?: Uint8Array;
+    /** Bytes the sender said the signature has, when the header survived. */
+    declaredLength?: number;
+    /** Bytes actually recovered. */
+    gotLength?: number;
+    reason: string;
+}
+
+/** Read a hidden footer, saying what is wrong when there is something wrong. */
+function parseHidden(raw: string): HiddenParse {
+    const stream = (raw.match(MARK_RE_G) ?? []).join("");
+    if (stream.length === 0) return { reason: "no marks in the message" };
 
     // A selector belonging to the text would shift every nibble; the magic
     // pair says where ours starts.
-    const at = run.indexOf(MAGIC_PAIR);
-    if (at < 0) return null;
-    const body = run.slice(at);
-    if (body.length % 2 !== 0 || body.length < 2 * (HEADER_BYTES + 1)) return null;
+    const at = stream.indexOf(MAGIC_PAIR);
+    if (at < 0) return { reason: "marks survived but the header did not: the run was truncated" };
 
+    const body = stream.slice(at);
     const bytes: number[] = [];
-    for (let i = 0; i < body.length; i += 2) {
+    for (let i = 0; i + 1 < body.length; i += 2) {
         const hi = body.charCodeAt(i) - VS_FIRST;
         const lo = body.charCodeAt(i + 1) - VS_FIRST;
-        if (hi < 0 || hi > 0xf || lo < 0 || lo > 0xf) return null;
+        if (hi < 0 || hi > 0xf || lo < 0 || lo > 0xf) return { reason: "the marks are not all selectors" };
         bytes.push((hi << 4) | lo);
     }
-    if (bytes[1] !== HIDDEN_VERSION) return null;
+
+    if (bytes.length < HEADER_BYTES + 2) return { reason: `only ${bytes.length} bytes arrived, not even a header` };
+    if (bytes[1] !== HIDDEN_VERSION) return { reason: `footer version ${bytes[1]}, this build speaks ${HIDDEN_VERSION}` };
+
+    const declaredLength = bytes[2];
+    const gotLength = Math.max(0, bytes.length - HEADER_BYTES - 1);
+    if (gotLength !== declaredLength)
+        return { declaredLength, gotLength, reason: `the signature was cut: ${gotLength} of ${declaredLength} bytes arrived` };
+
+    const expectedCrc = bytes[bytes.length - 1];
+    if (crc8(bytes.slice(0, bytes.length - 1)) !== expectedCrc)
+        return { declaredLength, gotLength, reason: "all bytes arrived but the checksum fails: something was altered" };
 
     let signedTsMs = 0;
-    for (let i = 2; i < HEADER_BYTES; i++) signedTsMs = signedTsMs * 256 + bytes[i];
-    if (!Number.isSafeInteger(signedTsMs) || signedTsMs <= 0) return null;
+    for (let i = 3; i < HEADER_BYTES; i++) signedTsMs = signedTsMs * 256 + bytes[i];
+    if (!Number.isSafeInteger(signedTsMs) || signedTsMs <= 0)
+        return { declaredLength, gotLength, reason: "the timestamp is not a real time" };
 
-    return { signedTsMs, blob: Uint8Array.from(bytes.slice(HEADER_BYTES)) };
+    return {
+        signedTsMs,
+        blob: Uint8Array.from(bytes.slice(HEADER_BYTES, HEADER_BYTES + declaredLength)),
+        declaredLength,
+        gotLength,
+        reason: "decodes"
+    };
+}
+
+function decodeHidden(raw: string): { signedTsMs: number; blob: Uint8Array; } | null {
+    const parsed = parseHidden(raw);
+    return parsed.blob && parsed.signedTsMs ? { signedTsMs: parsed.signedTsMs, blob: parsed.blob } : null;
 }
 
 // ── parsing ──────────────────────────────────────────────────────
