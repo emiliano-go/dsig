@@ -52,6 +52,22 @@ hello there
 ‖dsig:1:ms94qyh0:AQpqbMbXlgzekW1hYzqKl+eFTnM0mUbZnCmYy1mna/ChXn9iCbJg1NbU9wCj1KsrsfCGFsn9Q0OUAFJa1HcLTRmPx4n8OR8O
 ```
 
+The same exchange, ASCII-only, as each side sees it (`[SIGNED]` is the badge; `|` stands in
+for the `‖` mark):
+
+```text
+Alice sends "hello there" signed.
+
+Alice, with the plugin:               Bob, with the plugin:
+  [12:34] Alice  [SIGNED]               [12:34] Alice  [SIGNED]
+  hello there                           hello there
+
+Bob, without the plugin (desktop, mobile, web, bots all look the same):
+  [12:34] Alice
+  hello there
+  |dsig:1:ms94qyh0:AQpqbMbXlgzekW1hYzqKl+eFTnM0mUbZnCmYy1mna/ChXn9iCbJg1NbU9wCj1KsrsfCGFsn9Q0OUAFJa1HcLTRmPx4n8OR8O
+```
+
 That is 113 characters on its own line. It contains no markdown-significant characters, so every
 client (desktop, mobile, web, bots) renders it literally rather than mangling it. It is inert:
 it does not ping anyone, does not embed, and does not affect replies or search.
