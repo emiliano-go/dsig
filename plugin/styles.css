@@ -1,0 +1,103 @@
+.vc-dsig-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 15px;
+    padding: 0 4px;
+    margin-left: 4px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 15px;
+    text-transform: uppercase;
+    vertical-align: top;
+    cursor: help;
+    background: var(--background-modifier-hover, rgb(255 255 255 / 6%));
+    color: var(--dsig-color);
+}
+
+.vc-dsig-badge svg {
+    flex: 0 0 auto;
+}
+
+.vc-dsig-badge--icon {
+    padding: 0 2px;
+    background: none;
+}
+
+.vc-dsig-valid { --dsig-color: var(--text-positive, #23a55a); }
+.vc-dsig-skew { --dsig-color: var(--text-warning, #f0b232); }
+.vc-dsig-invalid { --dsig-color: var(--text-danger, #f23f43); }
+.vc-dsig-unknown-signer { --dsig-color: var(--text-muted, #949ba4); }
+.vc-dsig-pending { --dsig-color: var(--text-muted, #949ba4); }
+.vc-dsig-error { --dsig-color: var(--text-muted, #949ba4); }
+
+.vc-dsig-tooltip {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 320px;
+}
+
+.vc-dsig-fpr {
+    font-family: var(--font-code, monospace);
+    font-size: 11px;
+    word-break: break-all;
+}
+
+.vc-dsig-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.vc-dsig-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vc-dsig-peer {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    border-radius: 6px;
+    background: var(--background-secondary, rgb(0 0 0 / 10%));
+}
+
+.vc-dsig-mono {
+    font-family: var(--font-code, monospace);
+    font-size: 12px;
+}
+
+.vc-dsig-muted {
+    color: var(--text-muted, #949ba4);
+    font-size: 12px;
+}
+
+.vc-dsig-error-text {
+    color: var(--text-danger, #f23f43);
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+
+.vc-dsig-ok-text {
+    color: var(--text-positive, #23a55a);
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+
+.vc-dsig-textarea {
+    width: 100%;
+    min-height: 90px;
+    padding: 8px;
+    border: 1px solid var(--background-modifier-accent, rgb(255 255 255 / 10%));
+    border-radius: 4px;
+    background: var(--input-background, rgb(0 0 0 / 20%));
+    color: var(--text-normal, #dbdee1);
+    font-family: var(--font-code, monospace);
+    font-size: 12px;
+    resize: vertical;
+}
