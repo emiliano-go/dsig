@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — DataStore wrappers.
+ * dsig: DataStore wrappers.
  *
  * Pinned peers and verify results are *data*, not config: they never go into
  * the (small, synced, hand-editable) settings JSON.

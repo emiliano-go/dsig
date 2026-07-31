@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — backend selection.
+ * dsig: backend selection.
  *
  * Both backends expose the same four operations. The gpg backend forwards to
  * the main process (native.ts); the openpgp.js one runs in the renderer.

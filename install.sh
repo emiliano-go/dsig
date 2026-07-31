@@ -3,7 +3,7 @@
 #
 # Vesktop is pointed at VENCORD/dist via its "Vencord Location" setting
 # (state.json -> vencordDir), so a rebuild is all that is needed to pick up
-# plugin changes — restart Vesktop afterwards.
+# plugin changes; restart Vesktop afterwards.
 #
 # Usage: ./install.sh [path-to-Vencord]
 

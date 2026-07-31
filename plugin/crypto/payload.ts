@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — canonical payload construction.
+ * dsig: canonical payload construction.
  *
  * Dependency-free on purpose: imported by the renderer, the main process and
  * the test suite. Do not add imports that are not part of the language.
@@ -29,7 +29,7 @@ export function canonicalizeContent(content: string): string {
         .normalize("NFC")
         .replace(/\r\n?/g, "\n")
         // Discord keeps trailing spaces, but they are invisible and survive
-        // round-trips inconsistently across clients — drop them on both sides.
+        // round-trips inconsistently across clients; drop them on both sides.
         .replace(/[ \t]+$/gm, "")
         // Discord trims the message as a whole before storing it.
         .replace(/^\s+|\s+$/g, "");

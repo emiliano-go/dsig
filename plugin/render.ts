@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — render-time footer hiding.
+ * dsig: render-time footer hiding.
  *
  * The footer is removed from the *rendered* node tree, not from the message
  * object: search, copy, quoting and every other plugin keep seeing the real
@@ -14,12 +14,15 @@
 
 import { React } from "@webpack/common";
 
-import { FOOTER_RE } from "./crypto/footer";
+import { FOOTER_RE, HIDDEN_RE } from "./crypto/footer";
 
 const FOOTER_ANYWHERE = new RegExp(`\\n?${FOOTER_RE.source}`, "gm");
+const HIDDEN_ANYWHERE = new RegExp(HIDDEN_RE.source, "gu");
 
+// The hidden footer draws nothing anyway; it comes out so that copying a
+// message copies its text and not a tail of invisible codepoints.
 function stripString(s: string): string {
-    return s.replace(FOOTER_ANYWHERE, "");
+    return s.replace(FOOTER_ANYWHERE, "").replace(HIDDEN_ANYWHERE, "");
 }
 
 function walk(node: any): any {

@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — signing key selection.
+ * dsig: signing key selection.
  */
 
 import { Button } from "@components/Button";
@@ -25,7 +25,7 @@ const ADDKEY_HINT = "gpg --quick-add-key <your-key-id> ed25519 sign never";
 function keyLabel(key: KeyInfo): string {
     const uid = key.uids[0] ?? "(no user id)";
     const kind = key.isSubkey ? "subkey" : "key";
-    return `${uid} — ${key.algo} ${kind} ${key.fingerprint.slice(-16)}`;
+    return `${uid}: ${key.algo} ${kind} ${key.fingerprint.slice(-16)}`;
 }
 
 /** Ed25519 keys can use compact mode; everything else has to stay armored. */
@@ -73,7 +73,7 @@ function GpgKeyPicker() {
 
             {!loading && signable.length > 0 && ed25519.length === 0 && (
                 <Paragraph className={cl("error-text")}>
-                    None of your signing keys is Ed25519, so compact mode is unavailable — signatures will
+                    None of your signing keys is Ed25519, so compact mode is unavailable; signatures will
                     be sent in the larger armored form. To add an Ed25519 signing subkey:{"\n"}
                     <span className={cl("mono")}>{ADDKEY_HINT}</span>
                 </Paragraph>

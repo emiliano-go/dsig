@@ -20,6 +20,7 @@ Signatures regenerate on edit. Incoming messages from keys you have pinned get a
 - [Step 4: Pin your peers](#step-4-pin-your-peers)
 - [Passphrase prompts and gpg-agent](#passphrase-prompts-and-gpg-agent)
 - [Settings reference](#settings-reference)
+- [Footer style](#footer-style)
 - [Badges](#badges)
 - [Wire format](#wire-format)
 - [Security notes](#security-notes)
@@ -44,12 +45,21 @@ hello there
 Hovering the badge shows the signer's fingerprint, the label you gave that peer, and how far the
 signed time sits from Discord's own timestamp.
 
+When several of your messages collapse under one name, the badge counts them, and says so
+when part of the run is not signed:
+
+```
+Emiliano  🛡 SIGNED ×7   today at 14:32
+Emiliano  🛡 SIGNED ×8 · 2 UNSIGNED
+```
+
 **For everyone else** (the vast majority of people you talk to) the message arrives as ordinary
-text with one extra line:
+text with the footer attached. How intrusive that is, is a setting; see
+[footer style](#footer-style):
 
 ```
 hello there
-‖dsig:1:ms94qyh0:AQpqbMbXlgzekW1hYzqKl+eFTnM0mUbZnCmYy1mna/ChXn9iCbJg1NbU9wCj1KsrsfCGFsn9Q0OUAFJa1HcLTRmPx4n8OR8O
+-# ‖dsig:1:ms94qyh0:AQpqbMbXlgzekW1hYzqKl+eFTnM0mUbZnCmYy1mna/ChXn9iCbJg1NbU9wCj1KsrsfCGFsn9Q0OUAFJa1HcLTRmPx4n8OR8O
 ```
 
 The same exchange, ASCII-only, as each side sees it (`[SIGNED]` is the badge; `|` stands in
@@ -65,12 +75,13 @@ Alice, with the plugin:               Bob, with the plugin:
 Bob, without the plugin (desktop, mobile, web, bots all look the same):
   [12:34] Alice
   hello there
-  |dsig:1:ms94qyh0:AQpqbMbXlgzekW1hYzqKl+eFTnM0mUbZnCmYy1mna/ChXn9iCbJg1NbU9wCj1KsrsfCGFsn9Q0OUAFJa1HcLTRmPx4n8OR8O
+  |-# |dsig:1:ms94qyh0:AQpqbMbXlgzekW1hYzqKl+eFTnM0mUbZnCmYy1mna/ChXn9iCbJg1NbU9wCj1KsrsfCGFsn9Q0OUAFJa1HcLTRmPx4n8OR8O
 ```
 
-That is 113 characters on its own line. It contains no markdown-significant characters, so every
-client (desktop, mobile, web, bots) renders it literally rather than mangling it. It is inert:
-it does not ping anyone, does not embed, and does not affect replies or search.
+That is 113 characters on its own line (116 with the `-# ` subtext marker). It contains no
+markdown-significant characters, so every client (desktop, mobile, web, bots) renders it
+literally rather than mangling it. It is inert: it does not ping anyone, does not embed, and
+does not affect replies or search.
 
 It is still visible clutter, and that is the real cost of this plugin. Consider
 `signChannels: "DMs only"` or the allowlist if you don't want to inflict it on busy servers.
@@ -214,8 +225,8 @@ Restart the client either way.
    this fails, nothing else will work, and the error tells you why.
 
 **On web, or if you prefer it on desktop:** set *Crypto backend* to **openpgp.js** and the key
-picker becomes an import box. Tick the acknowledgement — the private key is stored in the
-browser's IndexedDB, where any other plugin can read it — paste an **unencrypted** armored
+picker becomes an import box. Tick the acknowledgement (the private key is stored in the
+browser's IndexedDB, where any other plugin can read it), paste an **unencrypted** armored
 private key, and press *Import private key*. (Passphrase-protected keys are rejected; import a
 decrypted copy.) The stored key can be wiped again with the *Remove stored key* button in the
 same panel. Do not import a long-lived key this way.
@@ -300,6 +311,7 @@ cached signatures take tens of milliseconds. Verification never needs the agent 
 |---|---|---|
 | **Sign my outgoing messages** | on | master switch for the signing half |
 | **Signing key** | none | Ed25519 `[S]` subkey recommended; stored with a trailing `!` |
+| **Footer style** | Small grey line | how the footer looks to people without the plugin, see [footer style](#footer-style) |
 | **Signature format** | Compact | Compact = 113-char footer, plugin-only. Armored = 177 chars, verifiable by plain `gpg --verify` |
 | **Where to sign** | Everywhere | or *DMs only*, or an allowlist |
 | **Allowlisted channel IDs** | none | comma-separated, used in allowlist mode |
@@ -319,11 +331,30 @@ config, and they do not sync.
 
 ---
 
+## Footer style
+
+The footer has to travel in the message text, so everyone without the plugin sees *something*.
+Three shapes are available; all three are accepted on the way in, so peers can each pick their
+own.
+
+| Style | What a non-plugin reader sees | Cost |
+|---|---|---|
+| **Small grey line** (default) | the footer as Discord subtext: small, grey, one line | none |
+| **Plain line of text** | a full-size line of base64 | loud |
+| **Invisible** | nothing; the footer is encoded in codepoints that draw nothing and is appended to the message | ~25% more characters against the 2000-character limit; a client that does not support variation selectors may draw boxes |
+
+The invisible style encodes one byte per invisible codepoint (`U+FE00`–`U+FE0F` and
+`U+E0100`–`U+E01EF`, marked by `U+2062`). Copying such a message copies the hidden run with it,
+and anyone pasting it into a hex editor can see it is there; it is *unobtrusive*, not secret.
+
+---
+
 ## Badges
 
 | Badge | Colour | Meaning |
 |---|---|---|
 | **signed** | green | the signature covers this author, this channel, this time and this exact text |
+| **signed ×N** | green | a collapsed run of N messages, all signed. `signed ×8 · 2 unsigned` means two messages in the run carry no signature |
 | **signed · time mismatch** | amber | cryptographically fine, but the signed time is far from Discord's timestamp |
 | **signature invalid** | red | content, author, channel or message id do not match the signature |
 | **unknown signer** | grey | signed by a key you have not pinned, or one not pinned to this account |
@@ -334,6 +365,11 @@ config, and they do not sync.
 Clock skew and integrity failure are deliberately different colours. A red ✗ that fires because
 someone's clock drifted is a red ✗ nobody believes; keeping the two apart is what makes the red
 one mean something.
+
+A badge sits next to the name, and Discord draws the name once per group. So the badge on a
+collapsed run answers for the whole run: every message in it is verified, and the counts above
+are what comes out. A group ends at a new author, a reply, or seven minutes of silence. (In
+Discord's compact mode every message gets its own row, so badges are per-message there.)
 
 **"signature invalid" does not necessarily mean forgery.** The far more common cause is an edit
 made from a client without the plugin: the old footer stays attached to new text, so the
@@ -358,6 +394,12 @@ Only what cannot be recovered from the message itself travels:
 ‖dsig:1:{base36 signed_ts_ms}:{base64 signature blob}
 ```
 
+That line is what goes on the wire in the *plain* and *small grey line* styles (the latter
+prefixes it with Discord's `-# ` subtext marker). The *invisible* style carries the same two
+fields as `U+2062` followed by one invisible codepoint per byte of
+`[version][6-byte signed_ts_ms][signature blob]`. All three are parsed on the way in regardless
+of which one you send; a message carries exactly one, and the last one wins.
+
 The blob is either a compact 72-byte form or a full OpenPGP signature packet; the first byte
 distinguishes them. Compact keeps `[tag][hash algo][created][digest prefix][r][s]` and rebuilds
 the rest from the verifier's copy of the signer's fingerprint. Compact is only used when the
@@ -368,7 +410,7 @@ instead.
 To check an *armored* footer by hand: strip the footer line, rebuild the payload exactly as
 above from the live author, channel, message id and content plus the footer's timestamp,
 base64-decode the blob into a file, and run `gpg --verify <sig> <payload>`. Compact footers
-cannot be checked this way — the signer's fingerprint is not on the wire.
+cannot be checked this way; the signer's fingerprint is not on the wire.
 
 **Content canonicalisation** is the single largest source of false ✗ in a scheme like this. Both
 sides call the same function: NFC, CRLF→LF, per-line trailing whitespace removed, whole message
@@ -460,6 +502,11 @@ version: the canonicalisation rules are part of the wire format.
 tolerance. Fix the clock (`timedatectl` / NTP) rather than raising the slider: the check is what
 bounds signature replay.
 
+**The footer shows up in the edit box.** The plugin strips it when you start editing, so you
+edit your own text and the message is re-signed on save. If it still appears, Discord's
+dispatcher no longer accepts the interceptor (check the console); editing still works, just
+delete the footer line yourself; anything left at the end is dropped before signing anyway.
+
 **The footer is visible even though *hide footer* is on.** The render patch stopped matching
 after a Discord update. Signing and verification are unaffected; the footer is cosmetic. Check
 the console for a Vencord patch warning.
@@ -488,6 +535,7 @@ dsig/
 │   ├── settings.tsx     definePluginSettings schema
 │   ├── sign.ts          pre-send / pre-edit signing
 │   ├── verify.ts        verification orchestration + status decisions
+│   ├── group.ts         collapsed-run grouping + badge summaries
 │   ├── render.ts        render-time footer hiding
 │   ├── store.ts         DataStore wrappers (pinned peers, verify cache)
 │   ├── types.ts         shared types (renderer and main process)
@@ -508,12 +556,12 @@ dsig/
 npm test
 ```
 
-87 tests, run against the real `gpg` binary in a throwaway keyring under `/tmp`; your own
+118 tests, run against the real `gpg` binary in a throwaway keyring under `/tmp`; your own
 keyring is never touched, and the gpg-dependent suites skip themselves if gpg is missing. They
-cover canonicalisation idempotence, the base64 and footer codecs, byte-identical OpenPGP packet
-round-trips against real gpg output across SHA-256/384/512, the native bridge (including
-argv-injection refusals and `--status-fd` parsing), every verify status end to end, and
-render-time footer stripping.
+cover canonicalisation idempotence, the base64 and footer codecs (all three footer shapes),
+byte-identical OpenPGP packet round-trips against real gpg output across SHA-256/384/512, the
+native bridge (including argv-injection refusals and `--status-fd` parsing), every verify status
+end to end, message-group summarising, and render-time footer stripping.
 
 The suite imports the plugin's own modules through a small resolver hook
 (`tests/resolve-hook.mjs`) that fills in extensionless imports and swaps the two modules needing

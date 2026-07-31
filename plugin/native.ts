@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — main-process gpg bridge.
+ * dsig: main-process gpg bridge.
  *
  * Everything here runs outside the renderer. The secret key never leaves
  * gpg-agent; only payloads, signatures and public keys cross IPC.
@@ -37,7 +37,7 @@ interface RunResult {
 
 function sanitizeGpgPath(gpgPath: string): string {
     const p = (gpgPath || "gpg").trim();
-    // A path is fine; shell metacharacters are not — nothing here is ever run
+    // A path is fine; shell metacharacters are not; nothing here is ever run
     // through a shell, but reject them anyway so a mistyped setting fails loudly.
     if (/[;&|`$<>\n\r"']/.test(p)) throw new Error("dsig: refusing suspicious gpg path");
     return p;

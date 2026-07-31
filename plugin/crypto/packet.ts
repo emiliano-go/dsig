@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — OpenPGP v4 signature packet surgery (RFC 4880 §5.2.3).
+ * dsig: OpenPGP v4 signature packet surgery (RFC 4880 §5.2.3).
  *
  * Compact mode drops everything a verifier can reconstruct, keeping only:
  *
@@ -16,7 +16,7 @@
  * pinned peer key it is testing against).
  *
  * Only the exact layout GnuPG emits for a detached Ed25519 signature can be
- * compressed. Anything else round-trips unchanged as a raw packet — callers
+ * compressed. Anything else round-trips unchanged as a raw packet; callers
  * are expected to verify compressibility with `roundTrips()` at sign time and
  * fall back to armored mode when it fails.
  *

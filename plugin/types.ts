@@ -5,12 +5,20 @@
  */
 
 /*
- * dsig — GPG message signing for Vencord / Vesktop
+ * dsig: GPG message signing for Vencord / Vesktop
  * Shared type definitions. Must stay dependency-free: this file is imported
  * from both the renderer and the main process.
  */
 
 export type SignMode = "compact" | "armored";
+
+/**
+ * How the footer appears to someone *without* the plugin.
+ *   plain    : a visible line of base64
+ *   subtext  : the same line as Discord small text
+ *   hidden   : invisible codepoints appended to the body
+ */
+export type FooterStyle = "plain" | "subtext" | "hidden";
 export type BackendName = "gpg" | "openpgp";
 
 export type VerifyStatus =
@@ -56,7 +64,7 @@ export interface PinnedPeer {
      * Every signing-capable key in this blob, primary and subkeys alike. A key
      * that signs with a subkey (the recommended setup) puts the *subkey's*
      * fingerprint in its signatures, so this is what the signer of a message is
-     * actually matched against — and what the UI shows, since the primary's
+     * actually matched against, and what the UI shows, since the primary's
      * algorithm says nothing about what does the signing.
      *
      * Optional for backwards compatibility; see `signingKeysOf()`.

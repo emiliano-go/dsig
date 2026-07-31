@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — GnuPG --status-fd parsing.
+ * dsig: GnuPG --status-fd parsing.
  *
  * Verification verdicts come from here, never from gpg's exit code: gpg exits
  * 0 in situations that are not a good signature, and non-zero in situations

@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — the verification badge.
+ * dsig: the verification badge.
  *
  * Cryptographic failure and clock skew are deliberately different colours:
  * users only learn to trust ✗ if it never cries wolf about a slow clock.
@@ -13,8 +13,10 @@
 
 import { TooltipContainer } from "@components/TooltipContainer";
 import { classNameFactory } from "@utils/css";
-import { React, useEffect, useState } from "@webpack/common";
+import { MessageStore, React, useEffect, useMemo, useState, useStateFromStores } from "@webpack/common";
 
+import { logger } from "../crypto/backend";
+import { formatSummary, type GroupableMessage, type GroupSummary, messageGroup, summarize } from "../group";
 import { settings } from "../settings";
 import { groupFingerprint } from "../store";
 import type { VerifyResult, VerifyStatus } from "../types";
@@ -57,10 +59,27 @@ function ShieldIcon({ glyph }: { glyph: string; }) {
     );
 }
 
+function labelOf(status: VerifyStatus): string {
+    return LOOKS[status as keyof typeof LOOKS]?.label ?? status;
+}
+
+/** One line per verdict, so a mixed group says exactly what it is mixed of. */
+function GroupTooltip({ summary, results }: { summary: GroupSummary; results: VerifyResult[]; }) {
+    const signers = Array.from(new Set(results.map(r => r.peerLabel).filter(Boolean)));
+    return (
+        <div className={cl("tooltip")}>
+            <div>{summary.total} messages in this group</div>
+            {summary.parts.map(p => <div key={p.status}>{labelOf(p.status)} × {p.count}</div>)}
+            {summary.unsigned > 0 && <div>{summary.unsigned} unsigned</div>}
+            {signers.length > 0 && <div>{signers.join(", ")}</div>}
+        </div>
+    );
+}
+
 function Tooltip({ result }: { result: VerifyResult; }) {
     return (
         <div className={cl("tooltip")}>
-            <div>{LOOKS[result.status as keyof typeof LOOKS]?.label}</div>
+            <div>{labelOf(result.status)}</div>
             {result.peerLabel && <div>{result.peerLabel}</div>}
             {result.fingerprint && <div className={cl("fpr")}>{groupFingerprint(result.fingerprint)}</div>}
             {result.status === "valid" && (
@@ -77,44 +96,135 @@ function Tooltip({ result }: { result: VerifyResult; }) {
     );
 }
 
+function identityOf(message: VerifiableMessage): string {
+    return [message.id, String(message.editedTimestamp ?? ""), message.content].join("\u0000");
+}
+
 /**
- * Resolve a verification result for a message. `verifyMessage` answers
- * synchronously from cache when it can, so a cached message renders its badge
- * on the first paint with no flash.
+ * Last verdict seen for a given piece of text, keyed without the message id.
+ *
+ * A message changes id once: the local copy Discord shows while sending is
+ * replaced by the server's, which re-opens verification under a new id and,
+ * for that moment, has no verdict at all. Blanking the badge there is what
+ * made it flash and vanish. The old verdict stands in until the new one lands.
+ * It can only be stale about clock skew, since author, channel and text are
+ * identical by construction.
  */
-export function useVerification(message: VerifiableMessage): VerifyResult | null {
-    const sync = verifyMessage(message);
-    const initial = sync instanceof Promise ? null : sync;
-    const [result, setResult] = useState<VerifyResult | null>(initial);
+const lastVerdict = new Map<string, VerifyResult>();
 
-    useEffect(() => {
-        let live = true;
-        const res = verifyMessage(message);
-        if (res instanceof Promise) res.then(r => { if (live) setResult(r); }, () => void 0);
-        else setResult(res);
-        return () => { live = false; };
-    }, [message.id, message.content, String(message.editedTimestamp ?? "")]);
+function contentKey(message: VerifiableMessage): string {
+    return [message.channel_id, String(message.editedTimestamp ?? ""), message.content].join("\u0000");
+}
 
+function remember(message: VerifiableMessage, result: VerifyResult): VerifyResult {
+    if (lastVerdict.size > 300) lastVerdict.clear();
+    lastVerdict.set(contentKey(message), result);
     return result;
 }
 
-export function Badge({ message }: { message: VerifiableMessage; }) {
-    const result = useVerification(message);
-    if (!result || result.status === "unsigned") return null;
+/**
+ * Resolve verification results for a whole group. `verifyMessage` answers
+ * synchronously from cache when it can, so cached messages render their badge
+ * on the first paint with no flash; the rest fill in as they resolve.
+ */
+export function useVerification(messages: VerifiableMessage[]): (VerifyResult | null)[] {
+    const key = messages.map(identityOf).join("\u0001");
+    const settle = () => messages.map(m => {
+        const res = verifyMessage(m);
+        return res instanceof Promise
+            ? lastVerdict.get(contentKey(m)) ?? null
+            : remember(m, res);
+    });
 
-    const look = LOOKS[result.status as keyof typeof LOOKS];
+    const [results, setResults] = useState<(VerifyResult | null)[]>(settle);
+
+    useEffect(() => {
+        let live = true;
+        setResults(settle());
+
+        messages.forEach((message, i) => {
+            const res = verifyMessage(message);
+            if (!(res instanceof Promise)) return;
+            res.then(value => {
+                remember(message, value);
+                if (!live) return;
+                setResults(prev => {
+                    if (prev.length !== messages.length) return prev;
+                    const next = prev.slice();
+                    next[i] = value;
+                    return next;
+                });
+            }, () => void 0);
+        });
+
+        return () => { live = false; };
+    }, [key]);
+
+    return results;
+}
+
+function sameGroup(a: GroupableMessage[], b: GroupableMessage[]): boolean {
+    return a.length === b.length && a.every((m, i) => m.id === b[i].id && m.content === b[i].content);
+}
+
+/**
+ * The messages this badge answers for. Subscribed to MessageStore because a
+ * new message joining the group has to widen the count on a header that is
+ * already on screen.
+ *
+ * Anything unexpected falls back to the one message we were handed. This runs
+ * inside a `noop` ErrorBoundary, so a throw here does not show an error: it
+ * deletes the badge.
+ */
+function useGroup(message: GroupableMessage, compact: boolean): GroupableMessage[] {
+    return useStateFromStores(
+        [MessageStore],
+        () => {
+            // Compact mode gives every message its own username row, so every
+            // message renders its own decoration; aggregating would count the
+            // tail of the group once per header.
+            if (compact || !message.id) return [message];
+            try {
+                const channel = MessageStore.getMessages(message.channel_id);
+                const list: GroupableMessage[] = channel?.toArray?.() ?? [];
+                return (list.length ? messageGroup(list, message.id) : null) ?? [message];
+            } catch (e) {
+                logger.error("could not read the message group", e);
+                return [message];
+            }
+        },
+        [message.id, message.channel_id, compact],
+        sameGroup
+    );
+}
+
+export function Badge({ message, compact = false }: { message: GroupableMessage; compact?: boolean; }) {
+    const group = useGroup(message, compact);
+    const results = useVerification(group);
+
+    // Messages still in flight are left out rather than shown as "signing…":
+    // the count settles a beat later instead of flickering through every state.
+    const settled = useMemo(() => results.filter(Boolean) as VerifyResult[], [results]);
+    const summary = summarize(settled.map(r => r.status));
+    if (!summary) return null;
+
+    const look = LOOKS[summary.status as keyof typeof LOOKS];
     if (!look) return null;
 
+    const label = formatSummary(summary, labelOf);
     const iconOnly = settings.store.badgeStyle === "icon";
+    const tooltip = summary.total > 1
+        ? <GroupTooltip summary={summary} results={settled} />
+        : <Tooltip result={settled[0]} />;
 
     return (
-        <TooltipContainer text={<Tooltip result={result} />}>
+        <TooltipContainer text={tooltip}>
             <span
-                className={`${cl("badge")} ${cl(result.status)} ${iconOnly ? cl("badge--icon") : ""}`}
-                aria-label={`dsig: ${look.label}`}
+                className={`${cl("badge")} ${cl(summary.status)} ${iconOnly ? cl("badge--icon") : ""}`}
+                aria-label={`dsig: ${label}`}
             >
                 <ShieldIcon glyph={look.glyph} />
-                {!iconOnly && <span>{look.label}</span>}
+                {!iconOnly && <span>{label}</span>}
             </span>
         </TooltipContainer>
     );

@@ -3,13 +3,14 @@
  *
  * The real module pulls in React settings components, which Node cannot load;
  * every consumer only ever reads `settings.store`, so a plain object is a
- * faithful substitute. Defaults mirror settings.tsx — keep them in sync.
+ * faithful substitute. Defaults mirror settings.tsx; keep them in sync.
  */
 
 export const defaults = {
     signOutgoing: true,
     signingKey: "",
     signMode: "compact",
+    footerStyle: "subtext",
     signChannels: "all",
     channelAllowlist: "",
     verifyIncoming: true,

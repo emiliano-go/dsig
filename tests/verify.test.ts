@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
+import { extractFooter, hasFooter } from "../plugin/crypto/footer.ts";
 import { canonicalizeContent } from "../plugin/crypto/payload.ts";
 import { signContent } from "../plugin/sign.ts";
 import { deletePeer, getPeers, loadPeers, putPeer } from "../plugin/store.ts";
@@ -25,6 +26,19 @@ const CHANNEL = "876543210987654321";
 /** A snowflake whose embedded timestamp is `ms`. */
 function snowflakeAt(ms: number): string {
     return String((BigInt(ms) - 1420070400000n) << 22n);
+}
+
+/** How many footers of any style the message carries. */
+function countFooters(content: string): number {
+    let n = 0;
+    let rest = content;
+    while (hasFooter(rest)) {
+        const found = extractFooter(rest);
+        if (!found) break;
+        n++;
+        rest = found.body;
+    }
+    return n;
 }
 
 async function resolve(message: VerifiableMessage) {
@@ -186,6 +200,38 @@ describe("verify", { skip: hasGpg ? false : "gpg not installed" }, () => {
         };
         assert.equal((await resolve(stale)).status, "invalid");
     });
+
+    it("re-signs an edit instead of stacking a second footer", async () => {
+        await pinSelf();
+        const messageId = snowflakeAt(Date.now() - 60_000);
+        const original = await signContent("o", AUTHOR, CHANNEL, null, "first wording");
+
+        // What the edit box hands back: the stored message, footer included.
+        const edited = await signContent("e", AUTHOR, CHANNEL, messageId, original.content.replace("first", "second"));
+
+        assert.equal(countFooters(edited.content), 1, "the old footer must not survive");
+        assert.ok(edited.content.startsWith("second wording"));
+        assert.notEqual(edited.footer, original.footer);
+
+        const res = await resolve({
+            id: messageId,
+            channel_id: CHANNEL,
+            author: { id: AUTHOR },
+            content: edited.content,
+            editedTimestamp: new Date(edited.signedTsMs).toISOString()
+        });
+        assert.equal(res.status, "valid");
+    });
+
+    for (const style of ["plain", "subtext", "hidden"] as const) {
+        it(`signs and verifies with the ${style} footer style`, async () => {
+            settings.store.footerStyle = style;
+            await pinSelf();
+            const msg = await sentMessage("style does not change the payload");
+            assert.equal((await resolve(msg)).status, "valid");
+            assert.equal(countFooters(msg.content), 1);
+        });
+    }
 
     it("verifies armored-mode signatures and reads the signer from the packet", async () => {
         settings.store.signMode = "armored";

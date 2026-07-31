@@ -5,17 +5,19 @@
  */
 
 /*
- * dsig — the verification path.
+ * dsig: the verification path.
  *
  * Verify never parses the signed payload out of the message: it *rebuilds* it
  * from the live message (author, channel, id, content) plus the timestamp in
  * the footer, and asks the backend whether the signature covers exactly that.
- * Anything that shifted — a different author, a different channel, an edit,
- * a replayed footer — produces a different payload and therefore fails.
+ * Anything that shifted (a different author, a different channel, an edit,
+ * a replayed footer) produces a different payload and therefore fails.
  */
 
-import { getBackend } from "./crypto/backend";
-import { extractFooter } from "./crypto/footer";
+import { UserStore } from "@webpack/common";
+
+import { getBackend, logger } from "./crypto/backend";
+import { extractFooter, hasFooter } from "./crypto/footer";
 import { inflate, isCompact, isRawPacket, signerFingerprint } from "./crypto/packet";
 import { buildPayload, canonicalizeContent, contentHash, snowflakeToMs } from "./crypto/payload";
 import { settings } from "./settings";
@@ -32,6 +34,33 @@ export interface VerifiableMessage {
 }
 
 const inFlight = new Map<string, Promise<VerifyResult>>();
+
+/** Ids already reported by `noticeOwnUnsigned`, so the log stays readable. */
+const reportedUnsigned = new Set<string>();
+
+/**
+ * Say something when one of *our own* messages arrives with no footer while
+ * signing is on. Silence is the wrong answer here: the badge just does not
+ * appear, which looks identical to the plugin being off, and the interesting
+ * part (what the content actually looks like) is exactly what is missing.
+ */
+function noticeOwnUnsigned(message: VerifiableMessage): void {
+    try {
+        if (!settings.store.signOutgoing || !message.id || reportedUnsigned.has(message.id)) return;
+        if (message.author?.id !== UserStore.getCurrentUser()?.id) return;
+
+        reportedUnsigned.add(message.id);
+        if (reportedUnsigned.size > 200) reportedUnsigned.clear();
+
+        logger.warn(
+            `own message ${message.id} has no readable footer; it was sent unsigned, ` +
+            "or the footer did not survive the round trip. Tail of the stored content:",
+            JSON.stringify((message.content ?? "").slice(-160))
+        );
+    } catch {
+        /* a diagnostic must never break verification */
+    }
+}
 
 function editedAtMs(message: VerifiableMessage): number | null {
     const raw = message.editedTimestamp;
@@ -52,7 +81,10 @@ export function verifyMessage(message: VerifiableMessage): VerifyResult | Promis
     const hash = contentHash(message.content ?? "");
 
     if (!settings.store.verifyIncoming) return result("unsigned", hash);
-    if (!message.content || !message.content.includes("‖dsig:1:")) return result("unsigned", hash);
+    if (!message.content || !hasFooter(message.content)) {
+        noticeOwnUnsigned(message);
+        return result("unsigned", hash);
+    }
 
     // The send race: our own message exists locally before it has a snowflake.
     // Report "pending" rather than flashing a red ✗ at the author.
@@ -148,7 +180,7 @@ async function doVerify(message: VerifiableMessage, hash: string): Promise<Verif
     // verifies this" is genuinely ambiguous. Say so instead of overclaiming.
     const detail = declared
         ? lastError ?? "the signature does not match this message"
-        : "no pinned key verifies this message — the signer may be unpinned, or the content changed";
+        : "no pinned key verifies this message: the signer may be unpinned, or the content changed";
 
     return result("invalid", hash, { signedTsMs: footer.signedTsMs, detail, fingerprint: declared ?? undefined });
 }

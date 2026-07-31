@@ -5,10 +5,10 @@
  */
 
 /*
- * dsig — GPG message signing for Vencord / Vesktop.
+ * dsig: GPG message signing for Vencord / Vesktop.
  *
  * Every outgoing message carries a compact attestation that this account, in
- * this channel, at this moment, wrote this exact text — signed by the user's
+ * this channel, at this moment, wrote this exact text, signed by the user's
  * own GPG key. This is *not* encryption: content stays plaintext on the wire.
  */
 
@@ -18,10 +18,11 @@ import { addMessageDecoration, removeMessageDecoration } from "@api/MessageDecor
 import { addMessagePreEditListener, addMessagePreSendListener, removeMessagePreEditListener, removeMessagePreSendListener } from "@api/MessageEvents";
 import ErrorBoundary from "@components/ErrorBoundary";
 import definePlugin from "@utils/types";
-import { React, Toasts, UserStore } from "@webpack/common";
+import { FluxDispatcher, React, Toasts, UserStore } from "@webpack/common";
 
 import { Badge } from "./components/Badge";
 import { logger } from "./crypto/backend";
+import { stripTrailingFooters } from "./crypto/footer";
 import { stripFooterNodes } from "./render";
 import { settings } from "./settings";
 import { shouldSign, signContent } from "./sign";
@@ -32,7 +33,7 @@ function warn(reason: string) {
     Toasts.show({
         id: Toasts.genId(),
         type: Toasts.Type.FAILURE,
-        message: `dsig: message sent UNSIGNED — ${reason}`
+        message: `dsig: message sent UNSIGNED (${reason})`
     });
 }
 
@@ -67,9 +68,46 @@ const preEdit = async (channelId: string, messageId: string, msg: { content: str
     }
 };
 
+/**
+ * Keep the footer out of the edit box.
+ *
+ * Discord fills the editor with the stored message, footer and all. Stripping
+ * it there means the user edits their own prose and `preEdit` re-signs it, but
+ * only where a signature will actually be put back, or an edit in a channel we
+ * do not sign would quietly drop the signature that was already there.
+ */
+function interceptEditStart(): (() => void) | null {
+    const dispatcher = FluxDispatcher as any;
+    if (typeof dispatcher?.addInterceptor !== "function") {
+        logger.warn("FluxDispatcher.addInterceptor is missing; the footer will show while editing");
+        return null;
+    }
+
+    const interceptor = (action: any) => {
+        try {
+            if (action?.type === "MESSAGE_START_EDIT" && typeof action.content === "string" && shouldSign(action.channelId))
+                action.content = stripTrailingFooters(action.content);
+        } catch (e) {
+            logger.error("failed to strip the footer for editing", e);
+        }
+        return false; // never swallow the action
+    };
+
+    dispatcher.addInterceptor(interceptor);
+
+    return () => {
+        const list = dispatcher._interceptors;
+        if (!Array.isArray(list)) return;
+        const at = list.indexOf(interceptor);
+        if (at >= 0) list.splice(at, 1);
+    };
+}
+
+let stopIntercepting: (() => void) | null = null;
+
 export default definePlugin({
     name: "Dsig",
-    description: "Signs your messages with your GPG key and verifies signed messages from peers you have pinned. Not encryption — authorship only.",
+    description: "Signs your messages with your GPG key and verifies signed messages from peers you have pinned. Not encryption: authorship only.",
     authors: [{ name: "Emiliano Gandini Outeda", id: 0n }],
     settings,
 
@@ -93,9 +131,10 @@ export default definePlugin({
 
         addMessagePreSendListener(preSend);
         addMessagePreEditListener(preEdit);
+        stopIntercepting = interceptEditStart();
         addMessageDecoration("dsig", props => (
             <ErrorBoundary noop>
-                <Badge message={props.message as any} />
+                <Badge message={props.message as any} compact={props.compact} />
             </ErrorBoundary>
         ));
     },
@@ -103,6 +142,8 @@ export default definePlugin({
     stop() {
         removeMessagePreSendListener(preSend);
         removeMessagePreEditListener(preEdit);
+        stopIntercepting?.();
+        stopIntercepting = null;
         removeMessageDecoration("dsig");
     }
 });

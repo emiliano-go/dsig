@@ -7,7 +7,7 @@
  *   • it imports Vencord aliases ("@webpack/common") and two modules that pull
  *     in React components, which cannot load outside a bundler.
  *
- * Both are mapped to stubs here, for tests only — the shipped plugin is
+ * Both are mapped to stubs here, for tests only; the shipped plugin is
  * untouched. Modules with real logic (payload, footer, packet, store, sign,
  * verify, native) are always the genuine article.
  */

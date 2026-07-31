@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — openpgp.js backend.
+ * dsig: openpgp.js backend.
  *
  * Used on web, or on desktop when the user explicitly picks it. Weaker key
  * custody than gpg-agent: the private key lives in IndexedDB, readable by the

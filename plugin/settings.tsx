@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — settings schema.
+ * dsig: settings schema.
  *
  * Only scalar preferences live here. Pinned peer keys and the verify cache are
  * data, and live in DataStore (see store.ts).
@@ -37,6 +37,15 @@ export const settings = definePluginSettings({
         options: [
             { label: "Compact (plugin-only, ~110 char footer)", value: "compact", default: true },
             { label: "Armored (any GPG can verify, ~175 char footer)", value: "armored" }
+        ]
+    },
+    footerStyle: {
+        type: OptionType.SELECT,
+        description: "How the footer looks to people without the plugin",
+        options: [
+            { label: "Small grey line under the message (recommended)", value: "subtext", default: true },
+            { label: "Plain line of text", value: "plain" },
+            { label: "Invisible: hidden in the message text (may show as boxes on some clients)", value: "hidden" }
         ]
     },
     signChannels: {

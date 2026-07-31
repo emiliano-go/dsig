@@ -5,17 +5,17 @@
  */
 
 /*
- * dsig — the signing path (pre-send / pre-edit).
+ * dsig: the signing path (pre-send / pre-edit).
  */
 
 import { ChannelStore } from "@webpack/common";
 
 import { getBackend, logger } from "./crypto/backend";
-import { encodeFooter } from "./crypto/footer";
+import { attachFooter, encodeFooter, stripTrailingFooters } from "./crypto/footer";
 import { compress } from "./crypto/packet";
 import { buildPayload, canonicalizeContent, type PayloadMode } from "./crypto/payload";
 import { settings } from "./settings";
-import type { SignMode } from "./types";
+import type { FooterStyle, SignMode } from "./types";
 
 const DM_TYPES = new Set([1, 3]); // DM, GROUP_DM
 
@@ -42,7 +42,7 @@ export interface SignedMessage {
     /** Canonical content plus the footer line. */
     content: string;
     signedTsMs: number;
-    /** The mode actually used — compact silently degrades when it cannot apply. */
+    /** The mode actually used; compact silently degrades when it cannot apply. */
     mode: SignMode;
     footer: string;
 }
@@ -53,6 +53,12 @@ export interface SignedMessage {
  * Compact mode is only used when the signature provably survives
  * compress → inflate byte for byte; otherwise the raw packet travels instead.
  * That keeps a exotic gpg build from producing footers nobody can verify.
+ *
+ * A footer already at the end of `rawContent` is dropped first. That is what
+ * makes editing work: the edit box is filled with the stored message, footer
+ * and all, so without this an edit would stack a second footer under a stale
+ * one and the signature would cover the old footer as if it were prose. A
+ * footer quoted mid-message is left alone: the user typed that.
  */
 export async function signContent(
     mode: PayloadMode,
@@ -61,7 +67,7 @@ export async function signContent(
     messageId: string | null,
     rawContent: string
 ): Promise<SignedMessage> {
-    const content = canonicalizeContent(rawContent);
+    const content = canonicalizeContent(stripTrailingFooters(rawContent));
     const signedTsMs = Date.now();
     const payload = buildPayload(mode, authorId, channelId, messageId, signedTsMs, content);
 
@@ -79,6 +85,7 @@ export async function signContent(
         }
     }
 
-    const footer = encodeFooter(signedTsMs, blob);
-    return { content: content + "\n" + footer, signedTsMs, mode: used, footer };
+    const style = (settings.store.footerStyle ?? "subtext") as FooterStyle;
+    const footer = encodeFooter(signedTsMs, blob, style);
+    return { content: attachFooter(content, signedTsMs, blob, style), signedTsMs, mode: used, footer };
 }

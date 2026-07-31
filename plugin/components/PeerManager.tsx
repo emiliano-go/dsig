@@ -5,7 +5,7 @@
  */
 
 /*
- * dsig — pinned peer keys.
+ * dsig: pinned peer keys.
  *
  * Pinning is manual and out-of-band by design (SSH known_hosts, not a web of
  * trust): the plugin never trusts a key just because it arrived in a message.
@@ -52,7 +52,7 @@ function PeerRow({ peer }: { peer: PinnedPeer; }) {
     }
 
     // The primary key is what a peer is stored under, but a signature names the
-    // subkey that made it — so spell out which keys are actually trusted here,
+    // subkey that made it, so spell out which keys are actually trusted here,
     // otherwise pinning an ed25519 signing subkey looks like it pinned the
     // (usually RSA) primary instead.
     const mine = normalizeFingerprint(String(settings.store.signingKey ?? ""));
@@ -111,7 +111,7 @@ export function PeerManager() {
                 addedAt: Date.now(),
                 armoredPubkey: armored.trim()
             });
-            setStatus({ ok: true, text: `Pinned ${groupFingerprint(info.fingerprint)} — verify this out of band before trusting it.` });
+            setStatus({ ok: true, text: `Pinned ${groupFingerprint(info.fingerprint)} ; verify this out of band before trusting it.` });
             setArmored("");
             setLabel("");
             setIds("");
@@ -146,7 +146,7 @@ export function PeerManager() {
             // a full fingerprint is checked for membership.
             const signing = normalizeFingerprint(keyFpr);
             if (signing.length === 40 && !signingKeys.some(k => k.fingerprint === signing))
-                throw new Error(`your selected signing key ${groupFingerprint(signing)} is not part of the exported key — pick it again above`);
+                throw new Error(`your selected signing key ${groupFingerprint(signing)} is not part of the exported key; pick it again above`);
 
             // Keep any label/ids already set for this key rather than clobbering them.
             const existing = getPeer(info.fingerprint);
@@ -172,7 +172,7 @@ export function PeerManager() {
             const selected = signingKeys.find(k => k.fingerprint === signing);
             const note = selected && selected.fingerprint !== normalizeFingerprint(info.fingerprint)
                 ? `, including your ${selected.algo} signing subkey ${groupFingerprint(selected.fingerprint.slice(-16))}`
-                + ` (the primary ${info.algo} key is pinned too — it is what binds the subkey)`
+                + ` (the primary ${info.algo} key is pinned too: it is what binds the subkey)`
                 : "";
             setStatus({ ok: true, text: `Pinned your own key to account ${me}${note}.` });
         } catch (e) {

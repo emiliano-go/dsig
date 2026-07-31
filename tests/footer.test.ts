@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { encodeFooter, extractFooter, fromBase64, hasFooter, stripFooters, toBase64 } from "../plugin/crypto/footer.ts";
+import { attachFooter, encodeFooter, extractFooter, fromBase64, hasFooter, stripFooters, stripTrailingFooters, toBase64 } from "../plugin/crypto/footer.ts";
 
 const sample = Uint8Array.from({ length: 72 }, (_, i) => (i * 7 + 3) & 0xff);
 
@@ -65,5 +65,91 @@ describe("footer", () => {
 
     it("only matches a footer on its own line", () => {
         assert.equal(extractFooter("prefix ‖dsig:1:1:AAAA"), null);
+    });
+});
+
+describe("footer styles", () => {
+    const ts = 1751289600123;
+
+    it("round-trips the subtext form", () => {
+        const footer = encodeFooter(ts, sample, "subtext");
+        assert.ok(footer.startsWith("-# ‖dsig:1:"));
+        const parsed = extractFooter("hello\n" + footer);
+        assert.equal(parsed?.signedTsMs, ts);
+        assert.deepEqual(Array.from(parsed!.blob), Array.from(sample));
+        assert.equal(parsed!.body, "hello");
+    });
+
+    it("round-trips the hidden form", () => {
+        const footer = encodeFooter(ts, sample, "hidden");
+        const parsed = extractFooter("hello" + footer);
+        assert.equal(parsed?.signedTsMs, ts);
+        assert.deepEqual(Array.from(parsed!.blob), Array.from(sample));
+        assert.equal(parsed!.body, "hello");
+    });
+
+    it("hides every byte value behind an invisible codepoint", () => {
+        const all = Uint8Array.from({ length: 256 }, (_, i) => i);
+        const footer = encodeFooter(ts, all, "hidden");
+        assert.deepEqual(Array.from(extractFooter("x" + footer)!.blob), Array.from(all));
+        // Nothing in the run draws anything.
+        for (const ch of footer) {
+            const cp = ch.codePointAt(0)!;
+            const invisible = cp === 0x2062 || (cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef);
+            assert.ok(invisible, `footer draws U+${cp.toString(16).toUpperCase()}`);
+        }
+    });
+
+    it("attaches each style the way it has to travel", () => {
+        assert.equal(attachFooter("body", ts, sample, "plain"), "body\n" + encodeFooter(ts, sample, "plain"));
+        assert.equal(attachFooter("body", ts, sample, "subtext"), "body\n" + encodeFooter(ts, sample, "subtext"));
+        // No newline: a blank last line would be visible to everyone.
+        assert.equal(attachFooter("body", ts, sample, "hidden"), "body" + encodeFooter(ts, sample, "hidden"));
+    });
+
+    it("detects and strips all three styles", () => {
+        for (const style of ["plain", "subtext", "hidden"] as const) {
+            const raw = attachFooter("text", ts, sample, style);
+            assert.equal(hasFooter(raw), true, style);
+            assert.equal(stripFooters(raw), "text", style);
+        }
+    });
+
+    it("ignores a hidden run that is not a dsig footer", () => {
+        // A lone variation selector (an emoji presentation request, say).
+        const vs16 = "waving \u270B\uFE0F";
+        assert.equal(extractFooter(vs16), null);
+        assert.equal(hasFooter(vs16), false);
+    });
+
+    it("takes the later footer when both forms are present", () => {
+        const quoted = encodeFooter(1, sample, "plain");
+        const real = encodeFooter(2, sample, "hidden");
+        assert.equal(extractFooter(`quoting\n${quoted}\nmy reply${real}`)?.signedTsMs, 2);
+        assert.equal(extractFooter(`quoting${real}\nmy reply\n${quoted}`)?.signedTsMs, 1);
+    });
+});
+
+describe("stripTrailingFooters", () => {
+    const ts = 1751289600123;
+
+    it("removes the footer this plugin appended", () => {
+        for (const style of ["plain", "subtext", "hidden"] as const)
+            assert.equal(stripTrailingFooters(attachFooter("my text", ts, sample, style)), "my text", style);
+    });
+
+    it("removes a stack of them, which is what a re-edit produces", () => {
+        const doubled = attachFooter(attachFooter("my text", 1, sample, "plain"), 2, sample, "subtext");
+        assert.equal(stripTrailingFooters(doubled), "my text");
+    });
+
+    it("leaves a quoted footer where the user put it", () => {
+        const quoted = `they said\n${encodeFooter(1, sample)}\nand I disagree`;
+        assert.equal(stripTrailingFooters(quoted), quoted);
+        assert.equal(stripTrailingFooters(attachFooter(quoted, 2, sample, "plain")), quoted);
+    });
+
+    it("is a no-op on unsigned text", () => {
+        assert.equal(stripTrailingFooters("nothing to see"), "nothing to see");
     });
 });
