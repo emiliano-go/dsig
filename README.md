@@ -197,6 +197,13 @@ Restart the client either way.
    control) against your real key without involving Discord, and reports sizes and timings. If
    this fails, nothing else will work, and the error tells you why.
 
+**On web, or if you prefer it on desktop:** set *Crypto backend* to **openpgp.js** and the key
+picker becomes an import box. Tick the acknowledgement — the private key is stored in the
+browser's IndexedDB, where any other plugin can read it — paste an **unencrypted** armored
+private key, and press *Import private key*. (Passphrase-protected keys are rejected; import a
+decrypted copy.) The stored key can be wiped again with the *Remove stored key* button in the
+same panel. Do not import a long-lived key this way.
+
 Until a signing key is selected the plugin stays inert; it will not send anything, signed or
 otherwise, that it cannot stand behind.
 
@@ -223,7 +230,8 @@ gpg --armor --export <your-key-fingerprint>
 ```
 
 **For each peer:** paste their armored public key into **Add peer**, label it, and add their
-Discord user ID.
+Discord user ID (enable **Developer Mode** in Discord's Advanced settings, then right-click the
+user and *Copy User ID*).
 
 Note that `gpg --export` always emits the **whole** key, so a peer is pinned under its *primary*
 fingerprint while its signatures name a *signing subkey*. dsig records every signing-capable
@@ -288,6 +296,7 @@ cached signatures take tens of milliseconds. Verification never needs the agent 
 | **Path to the gpg binary** | `gpg` | absolute path if it isn't on `PATH` |
 | **Hide the raw signature footer** | on | display-only; the real content is untouched. Needs a restart |
 | **Badge style** | Pill with label | or icon only |
+| **Sign & verify** | – | diagnostic self-test of the full pipeline, see [Step 3](#step-3-configure-in-the-app) |
 
 Peer keys and the verify cache live in IndexedDB, not in the settings JSON: they are data, not
 config, and they do not sync.
@@ -303,7 +312,7 @@ config, and they do not sync.
 | **signature invalid** | red | content, author, channel or message id do not match the signature |
 | **unknown signer** | grey | signed by a key you have not pinned, or one not pinned to this account |
 | **signing…** | grey | the message has no snowflake yet; a moment on your own messages as they send |
-| **signature error** | grey | the backend failed before a verdict — gpg unreachable, import error, etc. |
+| **signature error** | grey | the backend failed before a verdict: gpg unreachable, import error, etc. |
 | *(none)* | n/a | unsigned message |
 
 Clock skew and integrity failure are deliberately different colours. A red ✗ that fires because
@@ -339,6 +348,11 @@ the rest from the verifier's copy of the signer's fingerprint. Compact is only u
 signature provably survives compress → inflate byte for byte, checked at signing time, so an
 unusual gpg build can never emit footers nobody can verify; it silently uses the full packet
 instead.
+
+To check an *armored* footer by hand: strip the footer line, rebuild the payload exactly as
+above from the live author, channel, message id and content plus the footer's timestamp,
+base64-decode the blob into a file, and run `gpg --verify <sig> <payload>`. Compact footers
+cannot be checked this way — the signer's fingerprint is not on the wire.
 
 **Content canonicalisation** is the single largest source of false ✗ in a scheme like this. Both
 sides call the same function: NFC, CRLF→LF, per-line trailing whitespace removed, whole message
