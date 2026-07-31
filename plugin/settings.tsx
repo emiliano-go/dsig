@@ -45,7 +45,7 @@ export const settings = definePluginSettings({
         options: [
             { label: "Small grey line under the message (recommended)", value: "subtext", default: true },
             { label: "Plain line of text", value: "plain" },
-            { label: "Invisible: hidden in the message text (may show as boxes on some clients)", value: "hidden" }
+            { label: "Invisible: nothing visible at all, any message length", value: "hidden" }
         ]
     },
     signChannels: {

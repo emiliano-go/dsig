@@ -16,7 +16,8 @@ export type SignMode = "compact" | "armored";
  * How the footer appears to someone *without* the plugin.
  *   plain    : a visible line of base64
  *   subtext  : the same line as Discord small text
- *   hidden   : invisible codepoints appended to the body
+ *   hidden   : invisible marks spread through the message, when it is long
+ *              enough to carry them
  */
 export type FooterStyle = "plain" | "subtext" | "hidden";
 export type BackendName = "gpg" | "openpgp";

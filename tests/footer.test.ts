@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { attachFooter, encodeFooter, extractFooter, fromBase64, hasFooter, stripFooters, stripTrailingFooters, toBase64 } from "../plugin/crypto/footer.ts";
+import { attachFooter, carriersNeeded, embedHidden, encodeFooter, hiddenReport, stripHidden, extractFooter, fromBase64, hasFooter, stripFooters, stripTrailingFooters, toBase64 } from "../plugin/crypto/footer.ts";
 
 const sample = Uint8Array.from({ length: 72 }, (_, i) => (i * 7 + 3) & 0xff);
 
@@ -80,61 +80,32 @@ describe("footer styles", () => {
         assert.equal(parsed!.body, "hello");
     });
 
-    it("round-trips the hidden form", () => {
-        const footer = encodeFooter(ts, sample, "hidden");
-        const parsed = extractFooter("hello" + footer);
-        assert.equal(parsed?.signedTsMs, ts);
-        assert.deepEqual(Array.from(parsed!.blob), Array.from(sample));
-        assert.equal(parsed!.body, "hello");
-    });
-
-    it("hides every byte value behind an invisible codepoint", () => {
-        const all = Uint8Array.from({ length: 256 }, (_, i) => i);
-        const footer = encodeFooter(ts, all, "hidden");
-        assert.deepEqual(Array.from(extractFooter("x" + footer)!.blob), Array.from(all));
-        // Nothing in the run draws anything.
-        for (const ch of footer) {
-            const cp = ch.codePointAt(0)!;
-            const invisible = cp === 0x2062 || (cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef);
-            assert.ok(invisible, `footer draws U+${cp.toString(16).toUpperCase()}`);
-        }
-    });
-
     it("attaches each style the way it has to travel", () => {
         assert.equal(attachFooter("body", ts, sample, "plain"), "body\n" + encodeFooter(ts, sample, "plain"));
         assert.equal(attachFooter("body", ts, sample, "subtext"), "body\n" + encodeFooter(ts, sample, "subtext"));
-        // No newline: a blank last line would be visible to everyone.
-        assert.equal(attachFooter("body", ts, sample, "hidden"), "body" + encodeFooter(ts, sample, "hidden"));
     });
 
     it("detects and strips all three styles", () => {
-        for (const style of ["plain", "subtext", "hidden"] as const) {
+        for (const style of ["plain", "subtext"] as const) {
             const raw = attachFooter("text", ts, sample, style);
             assert.equal(hasFooter(raw), true, style);
             assert.equal(stripFooters(raw), "text", style);
         }
     });
 
-    it("ignores a hidden run that is not a dsig footer", () => {
-        // A lone variation selector (an emoji presentation request, say).
+    it("ignores invisible characters in ordinary text", () => {
         const vs16 = "waving \u270B\uFE0F";
         assert.equal(extractFooter(vs16), null);
         assert.equal(hasFooter(vs16), false);
     });
 
-    it("takes the later footer when both forms are present", () => {
-        const quoted = encodeFooter(1, sample, "plain");
-        const real = encodeFooter(2, sample, "hidden");
-        assert.equal(extractFooter(`quoting\n${quoted}\nmy reply${real}`)?.signedTsMs, 2);
-        assert.equal(extractFooter(`quoting${real}\nmy reply\n${quoted}`)?.signedTsMs, 1);
-    });
 });
 
 describe("stripTrailingFooters", () => {
     const ts = 1751289600123;
 
     it("removes the footer this plugin appended", () => {
-        for (const style of ["plain", "subtext", "hidden"] as const)
+        for (const style of ["plain", "subtext"] as const)
             assert.equal(stripTrailingFooters(attachFooter("my text", ts, sample, style)), "my text", style);
     });
 
@@ -151,5 +122,97 @@ describe("stripTrailingFooters", () => {
 
     it("is a no-op on unsigned text", () => {
         assert.equal(stripTrailingFooters("nothing to see"), "nothing to see");
+    });
+});
+
+describe("the hidden footer", () => {
+    const ts = 1751289600123;
+
+    it("works for a message of any length, including a very short one", () => {
+        for (const text of ["ok", "", "a message long enough to have carried it the old way"]) {
+            const wire = embedHidden(text, ts, sample);
+            const parsed = extractFooter(wire);
+            assert.equal(parsed?.signedTsMs, ts, text);
+            assert.deepEqual(Array.from(parsed!.blob), Array.from(sample), text);
+            assert.equal(parsed!.body, text, "the text comes back exactly");
+        }
+    });
+
+    it("never writes into a link, mention or code span", () => {
+        const risky = "see https://example.com/a and <@123456789012345678> and `code` too";
+        const wire = embedHidden(risky, ts, sample);
+        for (const fragment of ["https://example.com/a", "<@123456789012345678>", "`code`"])
+            assert.ok(wire.includes(fragment), `${fragment} was written into`);
+    });
+
+    it("adds nothing that draws ink", () => {
+        const wire = embedHidden("hi there", ts, sample);
+        assert.equal(wire.replace(/[\u2800\uFE00-\uFE0F]/g, ""), "hi there");
+    });
+
+    it("spends the message's own characters before adding carriers", () => {
+        // A carrier costs a cell of width; a character the message already has
+        // costs nothing. A long enough message needs no carriers at all.
+        const long = "a message with plenty of characters to carry the whole signature by itself, no carriers needed here at all, none";
+        assert.equal(carriersNeeded(long, sample.length), 0);
+        assert.ok(!embedHidden(long, ts, sample).includes("\u2800"));
+        assert.ok(carriersNeeded("hi", sample.length) > 0);
+    });
+
+    it("never stacks more marks than Discord keeps", () => {
+        // Four per base character. A longer run is truncated by the client and
+        // takes the signature with it; that is the bug this format exists for.
+        const wire = embedHidden("hi", ts, sample);
+        for (const run of wire.match(/[\uFE00-\uFE0F]+/g) ?? [])
+            assert.ok(run.length <= 4, `run of ${run.length} marks`);
+    });
+
+    it("strips back to the original text", () => {
+        assert.equal(stripHidden(embedHidden("hello there", ts, sample)), "hello there");
+    });
+
+    it("replaces its own footer instead of stacking a second one", () => {
+        const once = embedHidden("hello", ts, sample);
+        const twice = embedHidden(once, ts + 1000, sample);
+        assert.equal(extractFooter(twice)?.signedTsMs, ts + 1000);
+        assert.equal(stripHidden(twice), "hello");
+    });
+
+    it("is not confused by a selector the user typed", () => {
+        const parsed = extractFooter(embedHidden("wave \u270B\uFE0F", ts, sample));
+        assert.deepEqual(Array.from(parsed!.blob), Array.from(sample));
+    });
+
+    it("ignores a message that only has stray selectors", () => {
+        assert.equal(hasFooter("waving \u270B\uFE0F"), false);
+        assert.equal(extractFooter("waving \u270B\uFE0F"), null);
+    });
+});
+
+describe("hidden carriers", () => {
+    const ts = 1751289600123;
+    const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+
+    it("puts at most four marks in each grapheme cluster", () => {
+        // Four is what Discord keeps. A longer run is truncated by the client
+        // and takes the signature with it; that is the bug this format exists
+        // for, and the cap is per cluster, so Segmenter is the authority.
+        for (const text of ["hi", "a longer message that carries most of it on its own characters"]) {
+            for (const { segment } of segmenter.segment(embedHidden(text, ts, sample))) {
+                const marks = (segment.match(/[\uFE00-\uFE0F]/g) ?? []).length;
+                assert.ok(marks <= 4, `cluster carries ${marks} marks`);
+            }
+        }
+    });
+
+    it("reports what survived when a footer is damaged", () => {
+        const wire = embedHidden("hi", ts, sample);
+        assert.equal(hiddenReport(wire).reason, "decodes");
+
+        // What the client did to the last build: the marks were cut down.
+        const truncated = wire.replace(/([\uFE00-\uFE0F]{4})/g, (run, _m, at) => (at < 10 ? run : ""));
+        const report = hiddenReport(truncated);
+        assert.ok(report.marks < report.expected);
+        assert.match(report.reason, /truncated|cut|stripped/);
     });
 });

@@ -14,15 +14,14 @@
 
 import { React } from "@webpack/common";
 
-import { FOOTER_RE, HIDDEN_RE } from "./crypto/footer";
+import { FOOTER_RE, HIDDEN_ANYWHERE_G } from "./crypto/footer";
 
 const FOOTER_ANYWHERE = new RegExp(`\\n?${FOOTER_RE.source}`, "gm");
-const HIDDEN_ANYWHERE = new RegExp(HIDDEN_RE.source, "gu");
 
-// The hidden footer draws nothing anyway; it comes out so that copying a
-// message copies its text and not a tail of invisible codepoints.
+// Hidden footers draw nothing, so this is only about copying: carriers and the
+// marks riding on them come out, a lone selector is somebody's emoji and stays.
 function stripString(s: string): string {
-    return s.replace(FOOTER_ANYWHERE, "").replace(HIDDEN_ANYWHERE, "");
+    return s.replace(FOOTER_ANYWHERE, "").replace(HIDDEN_ANYWHERE_G, "");
 }
 
 function walk(node: any): any {

@@ -18,7 +18,7 @@ import { Paragraph } from "@components/Paragraph";
 import { ChannelStore, MessageStore, React, SelectedChannelStore, TextInput, UserStore, useState } from "@webpack/common";
 
 import { activeBackend, getBackend } from "../crypto/backend";
-import { encodeFooter, extractFooter, hasFooter } from "../crypto/footer";
+import { encodeFooter, extractFooter, hasFooter, hiddenReport } from "../crypto/footer";
 import { compress, inflate, isCompact, signerFingerprint } from "../crypto/packet";
 import { buildPayload, canonicalizeContent } from "../crypto/payload";
 import { settings } from "../settings";
@@ -32,9 +32,20 @@ const SELF_CHANNEL = "100000000000000002";
 interface Line { ok: boolean; text: string; }
 
 
+/** The tail of a string spelled out, so invisible characters can be seen. */
+function codepoints(content: string, count: number): string {
+    return [...content]
+        .slice(-count)
+        .map(ch => {
+            const cp = ch.codePointAt(0)!;
+            return cp > 32 && cp < 127 ? ch : "U+" + cp.toString(16).toUpperCase().padStart(4, "0");
+        })
+        .join(" ");
+}
+
 /** Which shape of footer, if any, is sitting in this content. */
 function footerStyleOf(content: string): string {
-    if (/\u2062[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]+/u.test(content)) return "invisible";
+    if (/[\u2800\uFE00-\uFE0F]/.test(content)) return "invisible";
     if (/^-# \u2016dsig:1:/m.test(content)) return "small grey line (subtext)";
     if (/^\u2016dsig:1:/m.test(content)) return "plain line";
     return "none";
@@ -69,6 +80,17 @@ async function inspectLastOwnMessage(): Promise<Line[]> {
     out.push({ ok: hasFooter(content), text: `parses as a footer: ${hasFooter(content)}` });
     out.push({ ok: true, text: `stored content ends: ${JSON.stringify(content.slice(-90))}` });
     out.push({ ok: true, text: `length ${content.length} chars, ${[...content].length} codepoints` });
+    out.push({ ok: true, text: `last codepoints: ${codepoints(content, 12)}` });
+
+    const hidden = hiddenReport(content);
+    if (hidden.marks > 0 || hidden.carriers > 0) {
+        out.push({
+            ok: hidden.reason === "decodes",
+            text: `invisible footer: ${hidden.marks} marks, ${hidden.carriers} carriers, ` +
+                `longest run ${hidden.longestRun}, header ${hidden.magicFound ? "found" : "missing"} ` +
+                `- ${hidden.reason}`
+        });
+    }
 
     const verdict = await verifyMessage(message);
     out.push({
@@ -77,7 +99,7 @@ async function inspectLastOwnMessage(): Promise<Line[]> {
     });
 
     if (style === "none")
-        out.push({ ok: false, text: "the footer is gone: it never reached the server, or the server dropped it. Try another footer style." });
+        out.push({ ok: false, text: "the footer is gone: it never reached the server, or the server dropped it." });
 
     return out;
 }

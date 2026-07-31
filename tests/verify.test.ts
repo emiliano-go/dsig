@@ -223,13 +223,25 @@ describe("verify", { skip: hasGpg ? false : "gpg not installed" }, () => {
         assert.equal(res.status, "valid");
     });
 
-    for (const style of ["plain", "subtext", "hidden"] as const) {
+    for (const style of ["plain", "subtext"] as const) {
         it(`signs and verifies with the ${style} footer style`, async () => {
             settings.store.footerStyle = style;
             await pinSelf();
             const msg = await sentMessage("style does not change the payload");
             assert.equal((await resolve(msg)).status, "valid");
             assert.equal(countFooters(msg.content), 1);
+        });
+    }
+
+    for (const text of ["ok", "a message long enough to have carried a signature the old way"]) {
+        it(`signs and verifies an invisible footer on a ${text.length}-character message`, async () => {
+            settings.store.footerStyle = "hidden";
+            await pinSelf();
+
+            const msg = await sentMessage(text);
+            assert.equal(msg.content.replace(/[\u2800\uFE00-\uFE0F]/g, ""), text, "the visible text is unchanged");
+            assert.ok(!msg.content.includes("dsig:1:"), "nothing visible was appended");
+            assert.equal((await resolve(msg)).status, "valid");
         });
     }
 

@@ -11,7 +11,7 @@
 import { ChannelStore } from "@webpack/common";
 
 import { getBackend, logger } from "./crypto/backend";
-import { attachFooter, encodeFooter, stripTrailingFooters } from "./crypto/footer";
+import { attachFooter, embedHidden, encodeFooter, stripTrailingFooters } from "./crypto/footer";
 import { compress } from "./crypto/packet";
 import { buildPayload, canonicalizeContent, type PayloadMode } from "./crypto/payload";
 import { settings } from "./settings";
@@ -86,6 +86,12 @@ export async function signContent(
     }
 
     const style = (settings.store.footerStyle ?? "subtext") as FooterStyle;
+
+    if (style === "hidden") {
+        const embedded = embedHidden(content, signedTsMs, blob);
+        return { content: embedded, signedTsMs, mode: used, footer: embedded.slice(content.length) };
+    }
+
     const footer = encodeFooter(signedTsMs, blob, style);
     return { content: attachFooter(content, signedTsMs, blob, style), signedTsMs, mode: used, footer };
 }
