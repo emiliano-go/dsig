@@ -92,16 +92,16 @@ It is still visible clutter, and that is the real cost of this plugin. Consider
 
 | | |
 |---|---|
-| **Vesktop** or **Discord Desktop** | the `gpg` backend needs a main process to shell out from |
+| **Vesktop** or **Discord Desktop** | dsig shells out to gpg from the main process |
 | **GnuPG 2.x** | `gpg --version`; tested against 2.4.9 |
-| **Node + pnpm** | to build Vencord from source, which is what userplugins require |
+| **Node + pnpm** | to build Vencord from source |
 | **A GPG key you control** | see below |
 
 Any OS works: Linux (any distro; Flatpak Vesktop included), Windows and macOS. On Windows,
 install [Gpg4win](https://gpg4win.org) (`winget install GnuPG.Gpg4win`) so `gpg` is on PATH.
 
-Web Discord can only use the openpgp.js backend; see
-[Known limitations](#known-limitations).
+Web Discord has no main process and therefore no access to your gpg keyring, so dsig is
+desktop-only: the `.desktop` folder suffix keeps it out of the web build entirely.
 
 ---
 
@@ -168,37 +168,55 @@ move all three off the machine.
 
 ## Step 2: Install
 
-Userplugins are not distributed as files you drop into a running client; they are compiled into
-Vencord. So you build Vencord yourself, once.
+Userplugins are not files you drop into a running client; they are compiled into Vencord. The
+install script does that for you, from nothing: it clones Vencord if you do not already have it,
+installs its dependencies, copies the plugin in, builds, and points Vesktop at the result.
+
+On Linux or macOS:
 
 ```sh
-git clone https://github.com/Vendicated/Vencord.git ~/Documents/GitHub/Vencord
-cd ~/Documents/GitHub/Vencord
-pnpm install
-```
-
-Then, from this repo, on Linux or macOS:
-
-```sh
-./install.sh ~/Documents/GitHub/Vencord
+./install.sh
 ```
 
 or on Windows (PowerShell):
 
 ```powershell
-.\install.ps1 -Vencord $HOME\Documents\GitHub\Vencord
+.\install.ps1
 # if scripts are blocked by policy:
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-Either script copies `plugin/` into `Vencord/src/userplugins/dsig` and rebuilds. (It copies
-rather than symlinks: esbuild resolves real paths, so a symlink pointing outside the tree breaks
-Vencord's `@api/…` aliases.) The path argument defaults to `~/Documents/GitHub/Vencord`; both
-scripts also check for node/pnpm (enabling corepack if that is what provides pnpm) and run
-`pnpm install` for you if the checkout is fresh. If you would rather not run a script, see
+That is the whole install. Close Vesktop first: it rewrites its own settings on exit, so a
+running instance would undo the last step (the script says so and skips it rather than fighting
+you). Start Vesktop afterwards and enable **Dsig** in *Settings → Plugins*.
+
+You need `git`, `node` and `pnpm` on PATH; the scripts enable pnpm through corepack if that is
+what provides it. Everything else is theirs to arrange.
+
+**Where things go.** Vencord is cloned into `~/.local/share/dsig/Vencord`
+(`%LOCALAPPDATA%\dsig\Vencord` on Windows) and the plugin is copied to
+`src/userplugins/dsig.desktop` inside it. Copied, not symlinked: esbuild resolves real paths, so
+a symlink pointing outside the tree breaks Vencord's `@api/…` aliases. Vesktop's `state.json`
+gets `vencordDir` pointed at the build, with the previous file kept beside it as
+`state.json.dsig-backup`.
+
+**If you already have a Vencord checkout**, pass it and the script uses that one instead,
+leaving its git state alone (it only ever pulls in checkouts it created itself):
+
+```sh
+./install.sh ~/Documents/GitHub/Vencord
+```
+
+Re-run the same command to update after editing the plugin, or to rebuild against a newer
+Vencord. `DSIG_NO_VESKTOP=1 ./install.sh` (`-NoVesktop` on Windows) builds without touching
+Vesktop's settings; for Discord Desktop rather than Vesktop, run `pnpm inject` in the Vencord
+checkout afterwards. If you would rather not run a script at all, see
 [Manual install](#manual-install-what-the-scripts-do).
 
 ### Point your client at the build
+
+The installer already does this for Vesktop. What follows is what it did, for when you want to
+undo it, run it on a machine where it was skipped, or use Discord Desktop instead.
 
 **Vesktop**: do **not** run `pnpm inject`. Vesktop loads Vencord from its own setting:
 
@@ -220,8 +238,9 @@ where `state.json` lives at:
 | macOS | `~/Library/Application Support/vesktop/state.json` |
 
 Flatpak note: the Flatpak sandbox cannot read arbitrary home directories. Grant it access to
-the build once (`flatpak override --user --filesystem=$HOME/Documents/GitHub/Vencord/dist dev.vencord.Vesktop`)
-or pick a directory it can already see.
+the build once (`flatpak override --user --filesystem=<the dist path> dev.vencord.Vesktop`) or
+pick a directory it can already see. The installer prints this command when it finds a Flatpak
+Vesktop.
 
 Vesktop validates that directory by looking for `package.json` plus `vencordDesktopMain.js`,
 `vencordDesktopPreload.js`, `vencordDesktopRenderer.js` and `vencordDesktopRenderer.css`.
@@ -249,18 +268,18 @@ Anywhere a command differs, the PowerShell form follows the shell form.
    pnpm install          # if pnpm is missing: corepack enable pnpm
    ```
 
-2. **Copy the plugin in.** Copy this repo's `plugin/` directory to
-   `Vencord/src/userplugins/dsig`. It must be a real copy, not a symlink; on a re-install,
-   delete the old copy first.
+2. **Copy the plugin in.** Copy this repo's `dsig.desktop/` directory to
+   `Vencord/src/userplugins/dsig.desktop`. It must be a real copy, not a symlink; on a
+   re-install, delete the old copy first.
 
    ```sh
-   rm -rf path/to/Vencord/src/userplugins/dsig
-   cp -R plugin path/to/Vencord/src/userplugins/dsig
+   rm -rf path/to/Vencord/src/userplugins/dsig.desktop
+   cp -R dsig.desktop path/to/Vencord/src/userplugins/dsig.desktop
    ```
 
    ```powershell
-   Remove-Item -Recurse -Force path\to\Vencord\src\userplugins\dsig
-   Copy-Item -Recurse plugin path\to\Vencord\src\userplugins\dsig
+   Remove-Item -Recurse -Force path\to\Vencord\src\userplugins\dsig.desktop
+   Copy-Item -Recurse dsig.desktop path\to\Vencord\src\userplugins\dsig.desktop
    ```
 
 3. **Build Vencord**, from the Vencord directory. `CI=true` keeps the build non-interactive:
@@ -309,13 +328,6 @@ Anywhere a command differs, the PowerShell form follows the shell form.
    it parses, the tail of the stored content spelled out as codepoints, and for the invisible
    style exactly how many invisible symbols came back and what the badge would show. This is
    the only way to see whether Discord's client quietly rewrote your footer.
-
-**On web, or if you prefer it on desktop:** set *Crypto backend* to **openpgp.js** and the key
-picker becomes an import box. Tick the acknowledgement (the private key is stored in the
-browser's IndexedDB, where any other plugin can read it), paste an **unencrypted** armored
-private key, and press *Import private key*. (Passphrase-protected keys are rejected; import a
-decrypted copy.) The stored key can be wiped again with the *Remove stored key* button in the
-same panel. Do not import a long-lived key this way.
 
 Until a signing key is selected the plugin stays inert; it will not send anything, signed or
 otherwise, that it cannot stand behind.
@@ -407,7 +419,6 @@ cached signatures take tens of milliseconds. Verification never needs the agent 
 | **Show 'unknown signer' badge** | on | off = unpinned signatures show no badge at all |
 | **Clock tolerance** | 10 s | how far the signed time may sit from Discord's timestamp |
 | **When the signed time exceeds tolerance** | warn | *warn* keeps it valid with a warning badge; *fail* treats it as invalid |
-| **Crypto backend** | System gpg | openpgp.js is the web fallback |
 | **Path to the gpg binary** | `gpg` | absolute path if it isn't on `PATH` |
 | **Hide the raw signature footer** | on | display-only; the real content is untouched. Needs a restart |
 | **Badge style** | Pill with label | or icon only |
@@ -570,9 +581,8 @@ That bounds replay and backdating without needing a trusted timestamp authority.
 
 ## Security notes
 
-- **Key custody.** The gpg backend never lets the secret leave `gpg-agent`; the renderer only
-  ever sees payloads and signatures. The openpgp.js backend stores the private key in IndexedDB
-  where any other plugin can read it, and is gated behind an explicit acknowledgement.
+- **Key custody.** The secret never leaves `gpg-agent`; the renderer only ever sees payloads
+  and signatures. dsig never asks for, stores or transmits a private key.
 - **No shell, ever.** gpg is spawned with argv arrays. Payloads go via stdin; signatures and peer
   keys via `0600` files in a fresh `mkdtemp` directory, removed in `finally`.
 - **Verdicts come from `--status-fd`**, not exit codes. `EXPKEYSIG` and `REVKEYSIG` are *not*
@@ -604,24 +614,25 @@ That bounds replay and backdating without needing a trusted timestamp authority.
 
 ## Updating
 
-After editing anything under `plugin/`:
+Re-run the installer; it is the same command as the first time:
 
 ```sh
-./install.sh ~/Documents/GitHub/Vencord    # copies + rebuilds
+./install.sh
 ```
 
 ```powershell
-.\install.ps1 -Vencord $HOME\Documents\GitHub\Vencord
+.\install.ps1
 ```
 
-and restart the client.
+Close Vesktop first, and start it again afterwards.
 
 Because Vesktop's *Vencord Location* now points at your own build, Vesktop no longer updates
-Vencord for you. To take upstream Vencord changes:
+Vencord for you — the installer does. In the checkout it cloned itself it pulls upstream Vencord
+before rebuilding; in a checkout you passed in, it never runs git at all, so update that one
+yourself:
 
 ```sh
 cd ~/Documents/GitHub/Vencord && git pull && pnpm install
-cd - && ./install.sh
 ```
 
 To go back to stock Vencord, clear *Vencord Location* in Vesktop's settings (or delete
@@ -653,9 +664,10 @@ tolerance. Fix the clock (`timedatectl` / NTP) rather than raising the slider: t
 bounds signature replay.
 
 **The footer shows up in the edit box.** The plugin strips it when you start editing, so you
-edit your own text and the message is re-signed on save. If it still appears, Discord's
-dispatcher no longer accepts the interceptor (check the console); editing still works, just
-delete the footer line yourself; anything left at the end is dropped before signing anyway.
+edit your own text and the message is re-signed on save. If it still appears, the
+`MESSAGE_START_EDIT` patch stopped matching after a Discord update (check the console for a
+Vencord patch warning); editing still works, just delete the footer line yourself; anything
+left at the end is dropped before signing anyway.
 
 **The footer is visible even though *hide footer* is on.** The render patch stopped matching
 after a Discord update. Signing and verification are unaffected; the footer is cosmetic. Check
@@ -679,7 +691,7 @@ pretending to be signed. The toast carries the reason.
 
 ```
 dsig/
-├── plugin/          ← this is what goes into Vencord/src/userplugins/dsig
+├── dsig.desktop/    ← this is what goes into Vencord/src/userplugins/dsig.desktop
 │   ├── index.tsx        plugin entry: hooks, render patch, badge decoration
 │   ├── native.ts        main-process gpg bridge (secret never leaves gpg-agent)
 │   ├── settings.tsx     definePluginSettings schema
@@ -696,11 +708,10 @@ dsig/
 │   │   ├── packet.ts    OpenPGP v4 signature parsing, compact codec, armor
 │   │   ├── status.ts    gpg --status-fd parsing
 │   │   ├── probe.ts     capacity probe: which invisible characters Discord keeps
-│   │   ├── backend.ts   gpg / openpgp.js selection
-│   │   └── openpgp.ts   openpgp.js backend (web)
+│   │   └── backend.ts   the gpg backend, over the native bridge
 │   └── components/      Badge, KeyPicker, PeerManager, TestPanel
 ├── tests/           node:test suite
-├── install.sh       copy into Vencord + rebuild (Linux, macOS)
+├── install.sh       clone Vencord if needed, copy in, build, wire up Vesktop
 └── install.ps1      the same for Windows (PowerShell)
 ```
 
@@ -740,10 +751,8 @@ produces a bundle containing the plugin and registering its native module.
   sending an unsigned footer). And because the alphabet doubles as ordinary text, hidden mode
   removes those codepoints (and the retired v3 alphabet's) from what you typed; in scripts that
   rely on `U+200C` for word shaping (Persian, for one), prefer the subtext style.
-- **The openpgp.js backend is untested.** It loads openpgp.js at runtime from `cdn.jsdelivr.net`
-  (on Vencord's CSP allowlist) and cannot be exercised from Node. Web Discord has no main process
-  and therefore no access to your gpg keyring, so it is the only option there, at the cost of
-  keeping your private key in IndexedDB.
+- **Desktop only.** Web Discord cannot reach a gpg keyring, so the plugin is excluded from the
+  web build.
 - **Compact mode cannot name an unpinned signer.** A compact signature does not carry the
   signer's fingerprint, so "no pinned key verifies this" is genuinely ambiguous between a wrong
   key and altered content; the badge says so rather than overclaiming. Armored mode names the
