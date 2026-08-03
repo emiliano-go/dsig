@@ -20,7 +20,8 @@ export const defaults = {
     backend: "gpg",
     gpgPath: "gpg",
     hideFooter: true,
-    badgeStyle: "pill"
+    badgeStyle: "pill",
+    probeSurvivors: ""
 };
 
 export const settings = {

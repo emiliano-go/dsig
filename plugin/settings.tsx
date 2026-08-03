@@ -45,7 +45,7 @@ export const settings = definePluginSettings({
         options: [
             { label: "Small grey line under the message (recommended)", value: "subtext", default: true },
             { label: "Plain line of text", value: "plain" },
-            { label: "Invisible: nothing visible at all, any message length", value: "hidden" }
+            { label: "Invisible: nothing visible at all; works for any message length", value: "hidden" }
         ]
     },
     signChannels: {
@@ -133,5 +133,12 @@ export const settings = definePluginSettings({
         type: OptionType.COMPONENT,
         description: "Sign & verify a test string",
         component: TestPanel
+    },
+    /** Set by the capacity probe; the characters the long-run probe targets. */
+    probeSurvivors: {
+        type: OptionType.STRING,
+        description: "",
+        default: "",
+        hidden: true
     }
 });

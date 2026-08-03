@@ -226,7 +226,7 @@ Restart the client either way.
 5. **Check my last message**: reads back the last message this account actually sent, as Discord
    stored it, and reports what survived the round trip: which footer style is present, whether
    it parses, the tail of the stored content spelled out as codepoints, and for the invisible
-   style exactly how many marks and carriers came back and what the badge would show. This is
+   style exactly how many invisible symbols came back and what the badge would show. This is
    the only way to see whether Discord's client quietly rewrote your footer.
 
 **On web, or if you prefer it on desktop:** set *Crypto backend* to **openpgp.js** and the key
@@ -346,49 +346,55 @@ own.
 |---|---|---|
 | **Small grey line** (default) | the footer as Discord subtext: small, grey, one line | none |
 | **Plain line of text** | a full-size line of base64 | loud |
-| **Invisible** | nothing at all | up to ~40 blank cells appended on short messages; longer ones ride the message's own characters and cost nothing |
+| **Invisible** | nothing at all | about 220 zero-width characters appended, whatever the message length |
 
 ### How the invisible style works, and why it looks like that
 
-The obvious design, one invisible run tacked onto the end of the message, does not survive
-Discord. Three things were measured against the live client:
+Three obvious designs were measured against the live client and died:
 
-- **Format characters are stripped.** `U+2062` (INVISIBLE TIMES), used to anchor a run, never
-  came back in the stored message.
-- **Combining marks are capped at four per base character.** That is Discord's defence against
-  zalgo text. A 72-byte signature needs about 150 marks; four survived.
+- **Format characters are stripped.** `U+2062` (INVISIBLE TIMES) and other format characters did
+  not come back in the stored message.
+- **Combining marks are capped at four per base character** (and ~90 per message), Discord's
+  defence against zalgo text. A 72-byte signature needs about 150 marks; four survived.
 - **A mark needs a real base character.** Attached to a space it is a defective sequence, and the
-  entire run was dropped.
+  entire run was dropped. `U+1160` HANGUL JUNGSEONG FILLER as a carrier drew nothing, but its
+  marks did not come back; `U+2800` BRAILLE PATTERN BLANK survived but drew a blank *cell*.
 
-So the footer rides on variation selectors (`U+FE00`–`U+FE0F`), four per base character. The
-message's own characters are free bases, filled first in order; whatever does not fit hangs on
-*carriers* appended after the message: `U+2800` BRAILLE PATTERN BLANK, which draws nothing, is
-its own grapheme cluster, and is not a format character. A carrier holds four selectors and
-costs one cell of width: the price of all three properties.
+The break came from measuring what *base* characters Discord keeps, not what it does to marks:
+zero-width base characters come through at 16/16, and a 600-character run of them came back byte
+for byte, in order. So the invisible footer is a run of such characters appended after the
+message, and the data lives in *which* character appears, not in marks stacked on one. The
+alphabet is eight codepoints the probe returned at 16/16, three bits each:
 
-Carriers go after the message, never inside it, which is what makes the style work for any
-message, a two-character one included, with no length floor and no fallback. And the selectors
-never touch links, mentions, custom emoji or code spans, so none of those can be damaged for
-any reader.
+`U+1160` `U+115F` `U+FFA0` (hangul fillers), `U+2060` (word joiner), `U+2062` (invisible times),
+`U+200B` (zero width space), `U+200C` (zero width non-joiner), `U+180E` (mongolian vowel
+separator) - all zero-width, none with joining or bidi behaviour. A compact signature rides in a
+framed 82-byte stream, so about 220 invisible characters. There is no length floor: the run
+carries all its own data, so even a one-character message (or a media message with no text at
+all) gets a hidden signature; the only constraint is Discord's 2000-character message limit,
+which the sign path refuses to exceed.
 
-The cost is zero for a message of about 40 characters or more, which carries the whole footer
-on its own text; a two-character message needs about 40 carrier cells. Either way the marks
-themselves draw nothing, against 113 characters for a visible footer.
+The exact channel is measured, not assumed. The diagnostics panel has a **capacity probe**: it
+copies a crafted message containing every candidate invisible character to your clipboard; you
+send it once in a private channel and click *Analyze last message*, and it reports which
+characters Discord kept and whether any signature can fit invisibly at all. A second button then
+stresses a signature-length run of exactly the survivors. If a future client change widens or
+narrows the channel, the probe shows it in one send rather than after another round of guessing.
+Probe messages are never signed: a footer would corrupt the very thing they measure.
 
-Two earlier attempts died on the live client: the Variation Selectors Supplement at `U+E0100`
-(surrogate pairs did not come back intact, so the encoding is BMP-only now), and `U+1160`
-HANGUL JUNGSEONG FILLER as a zero-width carrier (carriers survived but the marks did not
-decode; the cause is not established).
+The Variation Selectors Supplement at `U+E0100` was tried too, to pack one byte per codepoint;
+those are surrogate pairs and did not come back intact, so the encoding is BMP-only.
 
-The header carries the signature's length and the stream ends in a checksum, so a footer
-damaged in transit reports itself as such ("N of M bytes arrived", "checksum fails") rather
-than surfacing, far away, as a signature that simply will not verify.
+The stream starts with a marker and a version, carries the signature's length, and ends in a
+checksum, so a footer damaged in transit reports itself as such ("N of M bytes arrived",
+"checksum fails") rather than surfacing, far away, as a signature that simply will not verify.
 
-The marks are *unobtrusive*, not secret: they stay in the stored message and any tool that
-reads raw text (a hex dump, another client without the plugin's render pass) can see them
-there. Selectors and carriers are also never part of signed content: `canonicalizeContent`
-drops them on both sides. One consequence worth knowing is that an emoji presentation selector
-you type does not travel with your message when it is signed.
+The run is *unobtrusive*, not secret: it stays in the stored message and any tool that reads raw
+text (a hex dump, another client without the plugin's render pass) can see it there. It is also
+never part of signed content: `stripHidden` takes the run back out before signing and before
+verifying, so none of its characters ever reach the payload. One consequence worth knowing is
+that an emoji presentation selector you type does not travel with your message when it is
+signed.
 
 ---
 
@@ -439,9 +445,10 @@ Only what cannot be recovered from the message itself travels:
 
 The *small grey line* style prefixes that with Discord's `-# ` subtext marker; the prefix is
 optional on the way in, so both styles parse identically. The *invisible* style carries the same
-two fields as two variation selectors per byte of
-`[magic 0xD5][version][blob length][6-byte signed_ts_ms][signature blob][crc8]`, four marks at a
-time on the message's own characters first and then on blank braille carriers appended after it.
+two fields in the framed stream
+`[magic 0xD5][version][blob length][6-byte signed_ts_ms][signature blob][crc8]`, written as
+three bits per symbol over an eight-character alphabet of zero-width characters, appended after
+the message.
 The length byte and the trailing CRC-8 make damage legible instead of mysterious: a stream whose
 tail was cut reports "the signature was cut: N of M bytes arrived", altered bytes fail the
 checksum, and anything under 255 bytes (both signature shapes) fits. A message carries exactly
@@ -592,6 +599,7 @@ dsig/
 │   │   ├── footer.ts    ‖dsig footer codec
 │   │   ├── packet.ts    OpenPGP v4 signature parsing, compact codec, armor
 │   │   ├── status.ts    gpg --status-fd parsing
+│   │   ├── probe.ts     capacity probe: which invisible characters Discord keeps
 │   │   ├── backend.ts   gpg / openpgp.js selection
 │   │   └── openpgp.ts   openpgp.js backend (web)
 │   └── components/      Badge, KeyPicker, PeerManager, TestPanel
@@ -603,12 +611,13 @@ dsig/
 npm test
 ```
 
-128 tests, run against the real `gpg` binary in a throwaway keyring under `/tmp`; your own
+139 tests, run against the real `gpg` binary in a throwaway keyring under `/tmp`; your own
 keyring is never touched, and the gpg-dependent suites skip themselves if gpg is missing. They
-cover canonicalisation idempotence, the base64 and footer codecs (all three footer shapes),
-byte-identical OpenPGP packet round-trips against real gpg output across SHA-256/384/512, the
-native bridge (including argv-injection refusals and `--status-fd` parsing), every verify status
-end to end, message-group summarising, and render-time footer stripping.
+cover canonicalisation idempotence, the base64 and footer codecs (all three footer shapes,
+including damage in transit and the capacity probe), byte-identical OpenPGP packet round-trips
+against real gpg output across SHA-256/384/512, the native bridge (including argv-injection
+refusals and `--status-fd` parsing), every verify status end to end, message-group summarising,
+and render-time footer stripping.
 
 The suite imports the plugin's own modules through a small resolver hook
 (`tests/resolve-hook.mjs`) that fills in extensionless imports and swaps the two modules needing
@@ -625,11 +634,13 @@ produces a bundle containing the plugin and registering its native module.
 - **The render patch is unverified against a live Discord client.** Footer hiding attaches to the
   markdown content renderer (the same insertion point FakeNitro uses). If Discord's bundle
   shifts, the patch stops applying and the footer simply becomes visible.
-- **The invisible style depends on Discord's current text normalisation.** The design (four
-  selectors per base, `U+2800` carriers) was measured against the live client, but a client
-  update could strip or truncate the marks; the message then arrives unsigned and the badge
-  silently disappears. **Check my last message** in the diagnostics shows exactly what
-  survived.
+- **The invisible style depends on Discord's current text normalisation.** The design (an
+  appended run of eight zero-width characters) was measured against the live client with the
+  diagnostics probe, but a client update could strip or reorder the run; the message then
+  arrives unsigned and the badge silently disappears. **Check my last message** in the
+  diagnostics shows exactly what survived. The run also eats into the 2000-character message
+  limit, so a very long message cannot be signed invisibly (the plugin says so rather than
+  sending an unsigned footer).
 - **The openpgp.js backend is untested.** It loads openpgp.js at runtime from `cdn.jsdelivr.net`
   (on Vencord's CSP allowlist) and cannot be exercised from Node. Web Discord has no main process
   and therefore no access to your gpg keyring, so it is the only option there, at the cost of

@@ -23,6 +23,7 @@ import { FluxDispatcher, React, Toasts, UserStore } from "@webpack/common";
 import { Badge } from "./components/Badge";
 import { logger } from "./crypto/backend";
 import { stripTrailingFooters } from "./crypto/footer";
+import { isProbe, isProbe2 } from "./crypto/probe";
 import { stripFooterNodes } from "./render";
 import { settings } from "./settings";
 import { shouldSign, signContent } from "./sign";
@@ -39,6 +40,10 @@ function warn(reason: string) {
 
 const preSend = async (channelId: string, msg: { content: string; }) => {
     if (!msg.content || !shouldSign(channelId)) return;
+
+    // A capacity-probe message must reach Discord byte for byte; a footer
+    // appended to it would corrupt the very thing it measures.
+    if (isProbe(msg.content) || isProbe2(msg.content)) return;
 
     const authorId = UserStore.getCurrentUser()?.id;
     if (!authorId) return warn("current user unknown");

@@ -27,11 +27,10 @@ const SNOWFLAKE_EPOCH = 1420070400000n;
 export function canonicalizeContent(content: string): string {
     return content
         .normalize("NFC")
-        // The hidden footer is made of these: zero-width carriers and the
-        // variation selectors riding on them. They are never part of what gets
-        // signed, and both sides drop them, which also means an emoji
-        // presentation request cannot shift a signature.
-        .replace(/[\u2800\uFE00-\uFE0F]/g, "")
+        // Variation selectors are where the hidden footer lives, so they are
+        // never part of what gets signed. Both sides drop them, which also
+        // means an emoji presentation request cannot shift a signature.
+        .replace(/[\uFE00-\uFE0F]/g, "")
         .replace(/\r\n?/g, "\n")
         // Discord keeps trailing spaces, but they are invisible and survive
         // round-trips inconsistently across clients; drop them on both sides.

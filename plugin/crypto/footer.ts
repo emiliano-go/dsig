@@ -15,7 +15,7 @@
  *
  *   plain     ‖dsig:1:{ts36}:{blob_b64}          own line
  *   subtext   -# ‖dsig:1:{ts36}:{blob_b64}       own line, Discord small text
- *   hidden    variation selectors spread through the message, drawing nothing
+ *   hidden    a run of zero-width characters appended to the message, drawing nothing
  *
  * The last two exist for the *reader without the plugin*: subtext shrinks the
  * footer to a small grey line, hidden removes it from sight entirely.
@@ -72,64 +72,54 @@ export function encodeFooter(signedTsMs: number, blob: Uint8Array, style: Footer
 
 // ── the hidden form ──────────────────────────────────────────────
 //
-// Three things were measured against the live client, and together they rule
-// out every obvious design:
+// A footer nobody without the plugin can see. The earlier mark-based designs
+// were dead ends: Discord strips format characters, caps combining marks at
+// four per base and ~90 per message, and a mark needs a real base character.
+// A run of marks large enough to hold a signature never survived.
 //
-//   * format characters are stripped. U+2062, used as an anchor, never came
-//     back in the stored message.
-//   * combining marks are truncated to four per base character, which is
-//     Discord's defence against zalgo text. A 72-byte signature needs about
-//     150 marks; four survived.
-//   * a mark needs a real base character. Hung off a space, the whole run was
-//     dropped as a defective sequence.
+// The capacity probe (crypto/probe.ts) settled it with measurement. Zero-width
+// *base* characters are not subject to the mark caps: a 600-character run of
+// them came back byte for byte, in order. So the footer is a sequence of such
+// characters, each drawn from a fixed alphabet, three bits apiece — data lives
+// in *which* character appears, not in marks stacked on one.
 //
-// Marks therefore go on characters the message already has, four each, since
-// every visible character is a base and a cluster of its own. Whatever will not
-// fit rides on carriers appended afterwards: U+2800 BRAILLE PATTERN BLANK,
-// which draws nothing and is an ordinary symbol rather than a format character
-// or a conjoining jamo. A carrier costs one cell of width, so the fewer the
-// better; a message of ~40 characters needs none at all.
+// The alphabet is eight codepoints the probe returned at 16/16, all zero-width,
+// none with joining or bidi behaviour that could disturb the visible text:
 //
-// U+1160 HANGUL JUNGSEONG FILLER was tried as the carrier first, because it is
-// zero-width. Its carriers came back but the marks did not decode, and the
-// reason is not yet established: it is not grapheme merging and not NFC, both
-// checked. `hiddenReport` exists to answer that from the next failure rather
-// than from another guess.
+//   U+1160 U+115F U+FFA0  hangul fillers (Lo letters, inert)
+//   U+2060               word joiner
+//   U+2062               invisible times
+//   U+200B U+200C        zero-width space / non-joiner
+//   U+180E               mongolian vowel separator
 //
-// Carriers go after the message and never inside it. That is what makes this
-// work for a message of any length, including a two-character one, and it
-// leaves links, mentions, custom emoji and code spans untouched, which an
-// earlier version that wrote marks into the text could not promise.
+// The run is appended after the message. It carries a magic byte, a version, a
+// length and a CRC-8, so a stream damaged in transit reports itself as damaged
+// instead of surfacing later as a signature that will not verify. There is no
+// length floor: a one-character message, or a media message with no text at
+// all, carries the whole signature in the appended run.
 
-const VS_FIRST = 0xfe00;
-const VS_LAST = 0xfe0f;
-/** What Discord keeps on one base character. */
-const MARKS_PER_BASE = 4;
+const HIDDEN_ALPHABET = "ᅠᅟﾠ⁠⁢​‌᠎";
+/** 8 symbols → 3 bits each. */
+const HIDDEN_BITS = 3;
+
 const HIDDEN_MAGIC = 0xd5;
-const HIDDEN_VERSION = 2;
+const HIDDEN_VERSION = 3;
 /** Room for a millisecond timestamp until the year 10889. */
 const TS_BYTES = 6;
-/**
- * magic, version, blob length, timestamp.
- *
- * The length and the trailing checksum are what make damage legible. Without
- * them a stream whose header survived but whose tail was cut still "decoded",
- * and the failure surfaced far away as an unverifiable signature.
- */
+/** magic, version, blob length, timestamp. */
 const HEADER_BYTES = 3 + TS_BYTES;
+/** Header + at least one blob byte + CRC, in symbols: the shortest real run. */
+const MIN_SYMBOLS = Math.ceil(((HEADER_BYTES + 2) * 8) / HIDDEN_BITS);
 
-/**
- * Draws nothing, is its own grapheme cluster, and is not a format character.
- * It does occupy one cell of width, which is the price of all three.
- */
-const CARRIER = "\u2800";
+const SYMBOL_INDEX = new Map<string, number>([...HIDDEN_ALPHABET].map((ch, i) => [ch, i]));
 
-/** The two selectors spelling HIDDEN_MAGIC; also the cheap "is this ours" test. */
-const MAGIC_PAIR = "\ufe0d\ufe05";
-
-export const MARK_RE_G = /[\uFE00-\uFE0F]/g;
-/** Everything the hidden footer adds, for stripping it back out. */
-export const HIDDEN_ANYWHERE_G = /\u2800[\uFE00-\uFE0F]*/g;
+/** Everything the hidden footer is made of, for stripping it back out. Legacy
+ *  variation selectors are included so an older message cleans up too. */
+export const MARK_RE_G = /[︀-️]/g;
+export const HIDDEN_ALPHABET_RE_G = new RegExp(`[${HIDDEN_ALPHABET}]`, "g");
+export const HIDDEN_ANYWHERE_G = new RegExp(`[${HIDDEN_ALPHABET}\\uFE00-\\uFE0F]`, "g");
+/** A run long enough to be ours, used to locate the footer in a message. */
+const HIDDEN_RUN_RE_G = new RegExp(`[${HIDDEN_ALPHABET}]{${MIN_SYMBOLS},}`, "g");
 
 /** CRC-8, enough to tell a damaged stream from an intact one. */
 function crc8(bytes: ArrayLike<number>): number {
@@ -141,7 +131,8 @@ function crc8(bytes: ArrayLike<number>): number {
     return crc;
 }
 
-function marksFor(signedTsMs: number, blob: Uint8Array): string {
+/** The framed byte stream a footer carries: header, blob, checksum. */
+function frame(signedTsMs: number, blob: Uint8Array): Uint8Array {
     if (blob.length > 0xff) throw new Error("dsig: signature too large for an invisible footer");
 
     const bytes = new Uint8Array(HEADER_BYTES + blob.length + 1);
@@ -156,117 +147,59 @@ function marksFor(signedTsMs: number, blob: Uint8Array): string {
     }
     bytes.set(blob, HEADER_BYTES);
     bytes[bytes.length - 1] = crc8(bytes.subarray(0, bytes.length - 1));
+    return bytes;
+}
 
+/** Bytes → invisible symbols, three bits per symbol, MSB first. */
+function encodeSeq(bytes: Uint8Array): string {
     let out = "";
-    for (const b of bytes) out += String.fromCharCode(VS_FIRST + (b >> 4), VS_FIRST + (b & 0x0f));
+    let acc = 0;
+    let bits = 0;
+    for (const b of bytes) {
+        acc = (acc << 8) | b;
+        bits += 8;
+        while (bits >= HIDDEN_BITS) {
+            bits -= HIDDEN_BITS;
+            out += HIDDEN_ALPHABET[(acc >> bits) & 0b111];
+        }
+    }
+    if (bits > 0) out += HIDDEN_ALPHABET[(acc << (HIDDEN_BITS - bits)) & 0b111];
     return out;
 }
 
-/**
- * Stretches of the message we must not write into: a mark inside a link,
- * mention, custom emoji or code span would break it for every reader.
- */
-const PROTECTED_RE_G = /```[\s\S]*?```|`[^`\n]+`|<[^>\n]{1,64}>|(?:https?:\/\/|www\.)\S+/g;
-
-/**
- * Can a selector sit after this codepoint without changing what is drawn?
- *
- * Astral codepoints are excluded: they are emoji and friends, where a selector
- * is a presentation request rather than a no-op, and splitting a surrogate pair
- * would corrupt the text outright.
- */
-function isSafeBase(cp: number): boolean {
-    if (cp > 0xffff || cp <= 0x20) return false;
-    if (cp >= VS_FIRST && cp <= VS_LAST) return false;
-    if (cp === 0x2800) return false;
-    // BMP symbol and arrow blocks render as emoji on most platforms.
-    if (cp >= 0x2190 && cp <= 0x2bff) return false;
-    if (cp >= 0x3000 && cp <= 0x303f) return false;
-    return true;
-}
-
-/** String offsets just after each character of the message that may carry marks. */
-function slotsOf(text: string): number[] {
-    const spans: Array<[number, number]> = [];
-    PROTECTED_RE_G.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = PROTECTED_RE_G.exec(text)) !== null) spans.push([match.index, match.index + match[0].length]);
-
-    const slots: number[] = [];
-    for (let i = 0; i < text.length;) {
-        const cp = text.codePointAt(i)!;
-        const width = cp > 0xffff ? 2 : 1;
-        const guarded = spans.some(([from, to]) => i >= from && i < to);
-        if (!guarded && isSafeBase(cp)) slots.push(i + width);
-        i += width;
+/** Invisible symbols → bytes. Null when a symbol is not in the alphabet. */
+function decodeSeq(run: string): Uint8Array | null {
+    const bytes: number[] = [];
+    let acc = 0;
+    let bits = 0;
+    for (const ch of run) {
+        const v = SYMBOL_INDEX.get(ch);
+        if (v === undefined) return null;
+        acc = (acc << HIDDEN_BITS) | v;
+        bits += HIDDEN_BITS;
+        if (bits >= 8) {
+            bits -= 8;
+            bytes.push((acc >> bits) & 0xff);
+        }
     }
-    return slots;
+    return Uint8Array.from(bytes);
 }
 
 /** Everything this format adds to a message, taken back off. */
 export function stripHidden(raw: string): string {
-    return raw.replace(HIDDEN_ANYWHERE_G, "").replace(MARK_RE_G, "");
+    return raw.replace(HIDDEN_ANYWHERE_G, "");
 }
 
 /**
- * Hang a footer off the end of `content` as invisible carriers.
+ * Append an invisible footer to `content`.
  *
- * Always succeeds: the carriers supply their own base characters, so the
- * message never has to be long enough for anything.
+ * Always succeeds, for a message of any length including none at all: the run
+ * carries its own data and needs nothing from the message. Any stray footer
+ * characters already present are removed first so they cannot corrupt the run.
  */
 export function embedHidden(raw: string, signedTsMs: number, blob: Uint8Array): string {
-    // Marks already in the text would splice themselves into the stream and
-    // shift every nibble after them. They are not signed content either (see
-    // canonicalizeContent), so they come off here too.
     const content = stripHidden(raw);
-    const marks = marksFor(signedTsMs, blob);
-
-    // The message's own characters are free bases: they add no width and no
-    // carriers. Fill those first, in order, then append carriers for the rest.
-    let out = "";
-    let cursor = 0;
-    let at = 0;
-    for (const slot of slotsOf(content)) {
-        if (at >= marks.length) break;
-        out += content.slice(cursor, slot) + marks.slice(at, at + MARKS_PER_BASE);
-        cursor = slot;
-        at += MARKS_PER_BASE;
-    }
-    out += content.slice(cursor);
-
-    for (; at < marks.length; at += MARKS_PER_BASE)
-        out += CARRIER + marks.slice(at, at + MARKS_PER_BASE);
-
-    return out;
-}
-
-/** How many carriers a message of this length would need appending. */
-export function carriersNeeded(content: string, blobBytes: number): number {
-    const marks = 2 * (HEADER_BYTES + blobBytes);
-    const onText = Math.min(slotsOf(stripHidden(content)).length * MARKS_PER_BASE, marks);
-    return Math.ceil((marks - onText) / MARKS_PER_BASE);
-}
-
-/**
- * What became of a hidden footer in transit, for the diagnostics panel. Every
- * failure so far has been the client editing the sequence rather than the
- * encoding being wrong, so the useful thing to report is what survived.
- */
-export function hiddenReport(raw: string): {
-    carriers: number;
-    marks: number;
-    longestRun: number;
-    declaredLength?: number;
-    gotLength?: number;
-    reason: string;
-} {
-    const carriers = (raw.match(new RegExp(CARRIER, "g")) ?? []).length;
-    const runs = raw.match(/[\uFE00-\uFE0F]+/g) ?? [];
-    const marks = runs.reduce((n, run) => n + run.length, 0);
-    const longestRun = runs.length ? Math.max(...runs.map(run => run.length)) : 0;
-    const parsed = parseHidden(raw);
-
-    return { carriers, marks, longestRun, declaredLength: parsed.declaredLength, gotLength: parsed.gotLength, reason: parsed.reason };
+    return content + encodeSeq(frame(signedTsMs, blob));
 }
 
 interface HiddenParse {
@@ -281,45 +214,40 @@ interface HiddenParse {
 
 /** Read a hidden footer, saying what is wrong when there is something wrong. */
 function parseHidden(raw: string): HiddenParse {
-    const stream = (raw.match(MARK_RE_G) ?? []).join("");
-    if (stream.length === 0) return { reason: "no marks in the message" };
+    HIDDEN_RUN_RE_G.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    let run: string | null = null;
+    // The longest run is ours; a stray alphabet character in the text is short.
+    while ((match = HIDDEN_RUN_RE_G.exec(raw)) !== null)
+        if (!run || match[0].length > run.length) run = match[0];
+    if (run === null) return { reason: "no invisible run in the message" };
 
-    // A selector belonging to the text would shift every nibble; the magic
-    // pair says where ours starts.
-    const at = stream.indexOf(MAGIC_PAIR);
-    if (at < 0) return { reason: "marks survived but the header did not: the run was truncated" };
-
-    const body = stream.slice(at);
-    const bytes: number[] = [];
-    for (let i = 0; i + 1 < body.length; i += 2) {
-        const hi = body.charCodeAt(i) - VS_FIRST;
-        const lo = body.charCodeAt(i + 1) - VS_FIRST;
-        if (hi < 0 || hi > 0xf || lo < 0 || lo > 0xf) return { reason: "the marks are not all selectors" };
-        bytes.push((hi << 4) | lo);
-    }
-
+    const bytes = decodeSeq(run);
+    if (!bytes) return { reason: "the run holds characters outside the alphabet" };
     if (bytes.length < HEADER_BYTES + 2) return { reason: `only ${bytes.length} bytes arrived, not even a header` };
+    if (bytes[0] !== HIDDEN_MAGIC) return { reason: "the run does not start with the dsig marker" };
     if (bytes[1] !== HIDDEN_VERSION) return { reason: `footer version ${bytes[1]}, this build speaks ${HIDDEN_VERSION}` };
 
     const declaredLength = bytes[2];
-    const gotLength = Math.max(0, bytes.length - HEADER_BYTES - 1);
-    if (gotLength !== declaredLength)
+    const framed = HEADER_BYTES + declaredLength + 1;
+    const gotLength = Math.max(0, Math.min(bytes.length, framed) - HEADER_BYTES - 1);
+    if (bytes.length < framed)
         return { declaredLength, gotLength, reason: `the signature was cut: ${gotLength} of ${declaredLength} bytes arrived` };
 
-    const expectedCrc = bytes[bytes.length - 1];
-    if (crc8(bytes.slice(0, bytes.length - 1)) !== expectedCrc)
-        return { declaredLength, gotLength, reason: "all bytes arrived but the checksum fails: something was altered" };
+    const expectedCrc = bytes[framed - 1];
+    if (crc8(bytes.subarray(0, framed - 1)) !== expectedCrc)
+        return { declaredLength, gotLength: declaredLength, reason: "all bytes arrived but the checksum fails: something was altered" };
 
     let signedTsMs = 0;
     for (let i = 3; i < HEADER_BYTES; i++) signedTsMs = signedTsMs * 256 + bytes[i];
     if (!Number.isSafeInteger(signedTsMs) || signedTsMs <= 0)
-        return { declaredLength, gotLength, reason: "the timestamp is not a real time" };
+        return { declaredLength, gotLength: declaredLength, reason: "the timestamp is not a real time" };
 
     return {
         signedTsMs,
-        blob: Uint8Array.from(bytes.slice(HEADER_BYTES, HEADER_BYTES + declaredLength)),
+        blob: bytes.subarray(HEADER_BYTES, HEADER_BYTES + declaredLength),
         declaredLength,
-        gotLength,
+        gotLength: declaredLength,
         reason: "decodes"
     };
 }
@@ -328,6 +256,28 @@ function decodeHidden(raw: string): { signedTsMs: number; blob: Uint8Array; } | 
     const parsed = parseHidden(raw);
     return parsed.blob && parsed.signedTsMs ? { signedTsMs: parsed.signedTsMs, blob: parsed.blob } : null;
 }
+
+/**
+ * What became of a hidden footer in transit, for the diagnostics panel: how
+ * many symbols survived and whether the stream still decodes.
+ */
+export function hiddenReport(raw: string): {
+    symbols: number;
+    declaredLength?: number;
+    gotLength?: number;
+    reason: string;
+} {
+    const runs = raw.match(HIDDEN_RUN_RE_G) ?? [];
+    const symbols = runs.reduce((n, run) => Math.max(n, run.length), 0);
+    const parsed = parseHidden(raw);
+    return { symbols, declaredLength: parsed.declaredLength, gotLength: parsed.gotLength, reason: parsed.reason };
+}
+
+/** True when the message carries a run long enough to be a hidden footer. */
+export function hasHiddenRun(raw: string): boolean {
+    return hiddenReport(raw).symbols > 0;
+}
+
 
 // ── parsing ──────────────────────────────────────────────────────
 
@@ -340,7 +290,7 @@ export function attachFooter(content: string, signedTsMs: number, blob: Uint8Arr
 
 /** True when the message carries a footer at all (cheap pre-check). */
 export function hasFooter(raw: string): boolean {
-    if (raw.includes(MAGIC_PAIR) && decodeHidden(raw)) return true;
+    if (decodeHidden(raw)) return true;
     return raw.includes(`${FOOTER_MARK}dsig:1:`) && FOOTER_RE.test(raw);
 }
 
@@ -382,10 +332,10 @@ function lastLineFooter(raw: string): Candidate | null {
 export function extractFooter(raw: string): ParsedFooter | null {
     const found = lastLineFooter(raw);
     if (!found) {
-        const hidden = raw.includes(MAGIC_PAIR) ? decodeHidden(raw) : null;
+        const hidden = decodeHidden(raw);
         if (!hidden) return null;
-        // The marks are scattered through the text rather than appended to it,
-        // so the body is the message with every selector taken back out.
+        // The hidden footer is a run appended to the text, so the body is the
+        // message with that run (and any legacy selectors) taken back out.
         return { ...hidden, body: stripHidden(raw), line: "" };
     }
 

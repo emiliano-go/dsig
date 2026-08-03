@@ -233,17 +233,28 @@ describe("verify", { skip: hasGpg ? false : "gpg not installed" }, () => {
         });
     }
 
-    for (const text of ["ok", "a message long enough to have carried a signature the old way"]) {
-        it(`signs and verifies an invisible footer on a ${text.length}-character message`, async () => {
-            settings.store.footerStyle = "hidden";
-            await pinSelf();
+    it("signs and verifies an invisible footer", async () => {
+        settings.store.footerStyle = "hidden";
+        await pinSelf();
 
-            const msg = await sentMessage(text);
-            assert.equal(msg.content.replace(/[\u2800\uFE00-\uFE0F]/g, ""), text, "the visible text is unchanged");
-            assert.ok(!msg.content.includes("dsig:1:"), "nothing visible was appended");
-            assert.equal((await resolve(msg)).status, "valid");
-        });
-    }
+        const text = "a message with enough characters in it to hide a whole signature, invisibly";
+        const msg = await sentMessage(text);
+
+        assert.equal(msg.content.replace(/[\u1160\u115F\uFFA0\u2060\u2062\u200B\u200C\u180E]/g, ""), text, "not one visible character was added");
+        assert.ok(!msg.content.includes("dsig:1:"), "nothing visible was appended");
+        assert.equal((await resolve(msg)).status, "valid");
+    });
+
+    it("signs and verifies a short message invisibly", async () => {
+        // The appended run carries all its own data, so there is no length
+        // floor: even a two-character message gets a hidden signature.
+        settings.store.footerStyle = "hidden";
+        await pinSelf();
+
+        const msg = await sentMessage("hi");
+        assert.equal(msg.content.replace(/[\u1160\u115F\uFFA0\u2060\u2062\u200B\u200C\u180E]/g, ""), "hi");
+        assert.equal((await resolve(msg)).status, "valid");
+    });
 
     it("verifies armored-mode signatures and reads the signer from the packet", async () => {
         settings.store.signMode = "armored";

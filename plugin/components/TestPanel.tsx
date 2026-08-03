@@ -18,9 +18,10 @@ import { Paragraph } from "@components/Paragraph";
 import { ChannelStore, MessageStore, React, SelectedChannelStore, TextInput, UserStore, useState } from "@webpack/common";
 
 import { activeBackend, getBackend } from "../crypto/backend";
-import { encodeFooter, extractFooter, hasFooter, hiddenReport } from "../crypto/footer";
+import { encodeFooter, extractFooter, hasFooter, hasHiddenRun, hiddenReport } from "../crypto/footer";
 import { compress, inflate, isCompact, signerFingerprint } from "../crypto/packet";
 import { buildPayload, canonicalizeContent } from "../crypto/payload";
+import { analyzeProbe, analyzeProbe2, buildProbe, buildProbe2, CANDIDATES, isProbe, isProbe2, REPEATS } from "../crypto/probe";
 import { settings } from "../settings";
 import { getPeer, groupFingerprint } from "../store";
 import { verifyMessage } from "../verify";
@@ -45,7 +46,7 @@ function codepoints(content: string, count: number): string {
 
 /** Which shape of footer, if any, is sitting in this content. */
 function footerStyleOf(content: string): string {
-    if (/[\u2800\uFE00-\uFE0F]/.test(content)) return "invisible";
+    if (hasHiddenRun(content)) return "invisible";
     if (/^-# \u2016dsig:1:/m.test(content)) return "small grey line (subtext)";
     if (/^\u2016dsig:1:/m.test(content)) return "plain line";
     return "none";
@@ -83,11 +84,10 @@ async function inspectLastOwnMessage(): Promise<Line[]> {
     out.push({ ok: true, text: `last codepoints: ${codepoints(content, 12)}` });
 
     const hidden = hiddenReport(content);
-    if (hidden.marks > 0 || hidden.carriers > 0) {
+    if (hidden.symbols > 0) {
         out.push({
             ok: hidden.reason === "decodes",
-            text: `invisible footer: ${hidden.marks} marks, ${hidden.carriers} carriers, ` +
-                `longest run ${hidden.longestRun}` +
+            text: `invisible footer: ${hidden.symbols} symbols` +
                 (hidden.declaredLength != null ? `, ${hidden.gotLength}/${hidden.declaredLength} bytes` : "") +
                 ` - ${hidden.reason}`
         });
@@ -103,6 +103,54 @@ async function inspectLastOwnMessage(): Promise<Line[]> {
         out.push({ ok: false, text: "the footer is gone: it never reached the server, or the server dropped it." });
 
     return out;
+}
+
+/** The last message this account sent in the open channel, or null. */
+function lastOwnMessage(): { id: string; content: string; } | null {
+    const channelId = SelectedChannelStore.getChannelId();
+    if (!channelId) return null;
+    const me = UserStore.getCurrentUser()?.id;
+    const mine = (MessageStore.getMessages(channelId)?.toArray?.() ?? []).filter((m: any) => m.author?.id === me);
+    const message = mine[mine.length - 1];
+    return message ? { id: message.id, content: message.content ?? "" } : null;
+}
+
+/**
+ * Read back a sent probe and report which invisible characters Discord kept.
+ * This is the measurement that replaces guessing at an invisible encoding.
+ */
+function analyzeSentProbe(): Line[] {
+    const message = lastOwnMessage();
+    if (!message) return [{ ok: false, text: "no message from you in this channel yet; send the probe first" }];
+
+    if (isProbe2(message.content)) {
+        const survivors = JSON.parse(settings.store.probeSurvivors || "[]") as string[];
+        const r = analyzeProbe2(message.content, survivors);
+        return [
+            { ok: r.orderPreserved, text: `long-run probe: ${r.survived}/${r.sent} survived, order ${r.orderPreserved ? "kept" : "broken"}` },
+            { ok: r.orderPreserved, text: r.verdict }
+        ];
+    }
+
+    if (!isProbe(message.content))
+        return [{ ok: false, text: `last message is not a probe (send the copied probe string). It starts: ${JSON.stringify(message.content.slice(0, 16))}` }];
+
+    const report = analyzeProbe(message.content);
+    const lines: Line[] = report.results.map(r => ({
+        ok: r.survived === r.sent,
+        text: `${r.name}: ${r.survived}/${r.sent}${r.segmentIntact ? "" : " (segment delimiters lost)"}`
+    }));
+    lines.push({ ok: report.stackKept > 4, text: `per-base cap: ${report.stackKept}/${report.stackSent} selectors kept on one character` });
+    lines.push({ ok: report.spreadKept === report.spreadSent, text: `total cap: ${report.spreadKept}/${report.spreadSent} selectors kept across 30 characters` });
+    lines.push({ ok: report.survivingBases.length > 0, text: report.verdict });
+
+    // Remember the surviving zero-width base characters so the long-run probe
+    // can stress exactly those.
+    const survivors = CANDIDATES
+        .filter((c, i) => c.role === "base" && c.zeroWidth && report.results[i].survived === REPEATS)
+        .map(c => c.char);
+    settings.store.probeSurvivors = JSON.stringify(survivors);
+    return lines;
 }
 
 export function TestPanel() {
@@ -121,6 +169,30 @@ export function TestPanel() {
             setBusy(false);
         }
     }
+
+    async function copy(build: () => string, label: string) {
+        try {
+            await navigator.clipboard.writeText(build());
+            setLines([{ ok: true, text: `${label} copied. Paste and send it in any channel, then click Analyze last message.` }]);
+        } catch (e) {
+            setLines([{ ok: false, text: `could not copy: ${(e as Error).message}` }]);
+        }
+    }
+
+    function analyze() {
+        setBusy(true);
+        try {
+            setLines(analyzeSentProbe());
+        } catch (e) {
+            setLines([{ ok: false, text: (e as Error).message }]);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    const survivors = (() => {
+        try { return JSON.parse(settings.store.probeSurvivors || "[]") as string[]; } catch { return []; }
+    })();
 
     async function run() {
         setBusy(true);
@@ -198,6 +270,22 @@ export function TestPanel() {
                 <Button disabled={busy} onClick={run}>{busy ? "Working…" : "Sign & verify"}</Button>
                 <Button disabled={busy} onClick={inspect}>Check my last message</Button>
             </div>
+
+            <Paragraph className={cl("muted")}>
+                Capacity probe: measure which invisible characters survive Discord. Copy the probe,
+                send it in a private channel, then Analyze — the result says whether an invisible
+                signature is possible at all.
+            </Paragraph>
+            <div className={cl("row")}>
+                <Button disabled={busy} onClick={() => copy(buildProbe, "Probe")}>Copy probe</Button>
+                <Button disabled={busy} onClick={analyze}>Analyze last message</Button>
+                {survivors.length > 0 && (
+                    <Button disabled={busy} onClick={() => copy(() => buildProbe2(survivors), "Long-run probe")}>
+                        Copy long-run probe
+                    </Button>
+                )}
+            </div>
+
             {lines.map((l, i) => (
                 <Paragraph key={i} className={cl(l.ok ? "ok-text" : "error-text")}>
                     {l.ok ? "✓" : "✗"} {l.text}

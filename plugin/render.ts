@@ -18,8 +18,9 @@ import { FOOTER_RE, HIDDEN_ANYWHERE_G } from "./crypto/footer";
 
 const FOOTER_ANYWHERE = new RegExp(`\\n?${FOOTER_RE.source}`, "gm");
 
-// Hidden footers draw nothing, so this is only about copying: carriers and the
-// marks riding on them come out, a lone selector is somebody's emoji and stays.
+// Hidden footers draw nothing, so this is only about copying: the appended
+// run of zero-width characters comes out, a lone selector is somebody's emoji
+// and stays.
 function stripString(s: string): string {
     return s.replace(FOOTER_ANYWHERE, "").replace(HIDDEN_ANYWHERE_G, "");
 }

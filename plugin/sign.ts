@@ -89,7 +89,11 @@ export async function signContent(
 
     if (style === "hidden") {
         const embedded = embedHidden(content, signedTsMs, blob);
-        return { content: embedded, signedTsMs, mode: used, footer: embedded.slice(content.length) };
+        // The appended run eats into Discord's 2000-character message limit;
+        // past it the run would be truncated and the message arrive unsigned.
+        if (embedded.length > 2000)
+            throw new Error(`message too long for an invisible footer (the run needs ${embedded.length - content.length} characters)`);
+        return { content: embedded, signedTsMs, mode: used, footer: "" };
     }
 
     const footer = encodeFooter(signedTsMs, blob, style);
