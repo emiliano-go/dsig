@@ -4,11 +4,11 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import { fromBase64, toBase64 } from "../plugin/crypto/footer.ts";
+import { fromBase64, toBase64 } from "../dsig.desktop/crypto/footer.ts";
 import {
     armor, compress, dearmor, hex, inflate, isCompact, isRawPacket,
     parseSignature, roundTrips, serializeSignature, signatureCreated, signerFingerprint, unhex
-} from "../plugin/crypto/packet.ts";
+} from "../dsig.desktop/crypto/packet.ts";
 import { GPG, gpgAvailable, makeKeyring, type TestKeyring } from "./helpers.ts";
 
 const hasGpg = gpgAvailable();

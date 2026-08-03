@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { attachFooter, embedHidden, encodeFooter, hasHiddenRun, hiddenReport, stripHidden, extractFooter, fromBase64, hasFooter, stripFooters, stripTrailingFooters, toBase64 } from "../plugin/crypto/footer.ts";
+import { attachFooter, embedHidden, encodeFooter, hasHiddenRun, hiddenReport, stripHidden, stripHiddenRuns, extractFooter, fromBase64, hasFooter, stripFooters, stripTrailingFooters, toBase64 } from "../dsig.desktop/crypto/footer.ts";
 
 const sample = Uint8Array.from({ length: 72 }, (_, i) => (i * 7 + 3) & 0xff);
 
@@ -191,6 +191,19 @@ describe("the hidden footer", () => {
 
     it("strips back to the original text plus the separator", () => {
         assert.equal(stripHidden(embedHidden(long, ts, sample)!), long + " ");
+    });
+
+    it("strips the run and its separator, leaving typed zero-widths alone", () => {
+        // What the edit box needs: the footer goes, the prose survives intact.
+        assert.equal(stripHiddenRuns(embedHidden(long, ts, sample)!), long);
+
+        // U+200C shapes this word; it is one character, not a run, so it stays
+        // where stripHidden would have eaten it. (Signing in hidden mode does
+        // eat it, deliberately: the run has to be the only alphabet in play.)
+        const persian = "\u0645\u06CC\u200C\u062E\u0648\u0627\u0645";
+        const run = embedHidden("", ts, sample)!;
+        assert.equal(stripHiddenRuns(persian + " " + run), persian);
+        assert.notEqual(stripHidden(persian), persian);
     });
 
     it("replaces its own footer instead of stacking a second one", () => {

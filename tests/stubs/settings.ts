@@ -1,5 +1,5 @@
 /*
- * Stand-in for plugin/settings.tsx.
+ * Stand-in for dsig.desktop/settings.tsx.
  *
  * The real module pulls in React settings components, which Node cannot load;
  * every consumer only ever reads `settings.store`, so a plain object is a
@@ -18,7 +18,6 @@ export const defaults = {
     verifyUnknownKeys: true,
     clockToleranceSec: 10,
     onSkew: "warn",
-    backend: "gpg",
     gpgPath: "gpg",
     hideFooter: true,
     badgeStyle: "pill",

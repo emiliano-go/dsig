@@ -1,12 +1,12 @@
 /*
- * Stand-in for plugin/crypto/backend.ts.
+ * Stand-in for dsig.desktop/crypto/backend.ts.
  *
  * By default it forwards to the real native gpg bridge, so tests of verify.ts
  * exercise genuine signatures. `setBackend` lets a test swap in a fake.
  */
 
-import { exportPubkey, importPubkeyInfo, importPubkeyKeys, listSecretKeys, sign, verify } from "../../plugin/native.ts";
-import type { BackendName, KeyInfo, VerifyNativeResult } from "../../plugin/types.ts";
+import { exportPubkey, importPubkeyInfo, importPubkeyKeys, listSecretKeys, sign, verify } from "../../dsig.desktop/native.ts";
+import type { BackendName, KeyInfo, VerifyNativeResult } from "../../dsig.desktop/types.ts";
 import { settings } from "./settings.ts";
 
 export interface Backend {
@@ -37,10 +37,6 @@ export function setBackend(backend: Backend | null): void {
 
 export function getBackend(): Backend {
     return current;
-}
-
-export function activeBackend(): BackendName {
-    return current.name;
 }
 
 export function nativeAvailable(): boolean {

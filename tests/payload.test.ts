@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildPayload, canonicalizeContent, contentHash, snowflakeToMs } from "../plugin/crypto/payload.ts";
+import { buildPayload, canonicalizeContent, contentHash, snowflakeToMs } from "../dsig.desktop/crypto/payload.ts";
 
 describe("canonicalizeContent", () => {
     it("is idempotent", () => {

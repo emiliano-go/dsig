@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { hasFooter } from "../plugin/crypto/footer.ts";
+import { hasFooter } from "../dsig.desktop/crypto/footer.ts";
 import {
     analyzeProbe,
     analyzeProbe2,
@@ -21,7 +21,7 @@ import {
     isProbe2,
     PROBE2_RUN,
     REPEATS
-} from "../plugin/crypto/probe.ts";
+} from "../dsig.desktop/crypto/probe.ts";
 
 const isVs = (ch: string) => {
     const cp = ch.codePointAt(0)!;

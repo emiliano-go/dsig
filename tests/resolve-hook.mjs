@@ -1,9 +1,11 @@
 /*
  * Lets the test suite import the plugin's own modules.
  *
- * Two gaps to bridge:
+ * Three gaps to bridge:
  *   • the plugin uses extensionless relative imports ("./crypto/status"), which
  *     esbuild and TypeScript resolve but Node's ESM loader does not;
+ *   • Vencord's lint rules require "@plugins/dsig.desktop/…" for anything above
+ *     the importing file's own directory, an alias only the bundler knows;
  *   • it imports Vencord aliases ("@webpack/common") and two modules that pull
  *     in React components, which cannot load outside a bundler.
  *
@@ -18,6 +20,10 @@ import { fileURLToPath } from "node:url";
 const CANDIDATES = [".ts", ".tsx", "/index.ts", "/index.tsx"];
 
 const STUBS = new URL("./stubs/", import.meta.url).href;
+const PLUGIN = new URL("../dsig.desktop/", import.meta.url).href;
+
+/** "@plugins/dsig.desktop/crypto/footer" → the file in this repo. */
+const PLUGIN_ALIAS = "@plugins/dsig.desktop/";
 
 const ALIASES = {
     "@api/DataStore": STUBS + "DataStore.ts",
@@ -27,16 +33,19 @@ const ALIASES = {
 
 /** Plugin modules replaced wholesale because the real ones need a bundler. */
 function stubbedPluginModule(resolved) {
-    if (/\/plugin\/settings$/.test(resolved)) return STUBS + "settings.ts";
-    if (/\/plugin\/crypto\/backend$/.test(resolved)) return STUBS + "backend.ts";
+    if (/\/dsig\.desktop\/settings$/.test(resolved)) return STUBS + "settings.ts";
+    if (/\/dsig\.desktop\/crypto\/backend$/.test(resolved)) return STUBS + "backend.ts";
     return null;
 }
 
 export function resolve(specifier, context, next) {
     if (specifier in ALIASES) return next(ALIASES[specifier], context);
 
-    if (specifier.startsWith(".") && context.parentURL) {
-        const base = new URL(specifier, context.parentURL).href;
+    if (specifier.startsWith(".") || specifier.startsWith(PLUGIN_ALIAS)) {
+        const base = specifier.startsWith(PLUGIN_ALIAS)
+            ? PLUGIN + specifier.slice(PLUGIN_ALIAS.length)
+            : context.parentURL && new URL(specifier, context.parentURL).href;
+        if (!base) return next(specifier, context);
 
         const stub = stubbedPluginModule(base.replace(/\.tsx?$/, ""));
         if (stub) return next(stub, context);

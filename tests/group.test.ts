@@ -5,8 +5,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { formatSummary, type GroupableMessage, MAX_GROUP_GAP_MS, messageGroup, summarize } from "../plugin/group.ts";
-import type { VerifyStatus } from "../plugin/types.ts";
+import { formatSummary, type GroupableMessage, MAX_GROUP_GAP_MS, messageGroup, summarize } from "../dsig.desktop/group.ts";
+import type { VerifyStatus } from "../dsig.desktop/types.ts";
 
 const AUTHOR = "100000000000000001";
 const OTHER = "200000000000000002";

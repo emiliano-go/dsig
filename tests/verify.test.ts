@@ -6,11 +6,11 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
-import { extractFooter, hasFooter } from "../plugin/crypto/footer.ts";
-import { canonicalizeContent } from "../plugin/crypto/payload.ts";
-import { signContent } from "../plugin/sign.ts";
-import { deletePeer, getPeers, loadPeers, putPeer } from "../plugin/store.ts";
-import { verifyMessage, type VerifiableMessage } from "../plugin/verify.ts";
+import { extractFooter, hasFooter } from "../dsig.desktop/crypto/footer.ts";
+import { canonicalizeContent } from "../dsig.desktop/crypto/payload.ts";
+import { signContent } from "../dsig.desktop/sign.ts";
+import { deletePeer, getPeers, loadPeers, putPeer } from "../dsig.desktop/store.ts";
+import { verifyMessage, type VerifiableMessage } from "../dsig.desktop/verify.ts";
 import { gpgAvailable, makeKeyring, type TestKeyring } from "./helpers.ts";
 import { getBackend } from "./stubs/backend.ts";
 import { _reset } from "./stubs/DataStore.ts";
@@ -466,7 +466,7 @@ describe("verify with a signing subkey", { skip: hasGpg ? false : "gpg not insta
 
 describe("shouldSign", () => {
     it("follows the channel policy", async () => {
-        const { shouldSign } = await import("../plugin/sign.ts");
+        const { shouldSign } = await import("../dsig.desktop/sign.ts");
         resetSettings();
         settings.store.signingKey = "DEADBEEF!";
 

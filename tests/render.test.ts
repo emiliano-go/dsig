@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { encodeFooter } from "../plugin/crypto/footer.ts";
-import { stripFooterNodes } from "../plugin/render.ts";
+import { encodeFooter } from "../dsig.desktop/crypto/footer.ts";
+import { stripFooterNodes } from "../dsig.desktop/render.ts";
 import { element } from "./stubs/webpack-common.ts";
 
 const footer = encodeFooter(1751289600123, Uint8Array.from({ length: 72 }, (_, i) => i));

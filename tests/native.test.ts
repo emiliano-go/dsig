@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 
-import { encodeFooter, extractFooter } from "../plugin/crypto/footer.ts";
-import { compress, inflate, isCompact } from "../plugin/crypto/packet.ts";
-import { buildPayload, canonicalizeContent } from "../plugin/crypto/payload.ts";
-import { parseStatus } from "../plugin/crypto/status.ts";
-import { importPubkeyInfo, listSecretKeys, probe, sign, verify } from "../plugin/native.ts";
+import { encodeFooter, extractFooter } from "../dsig.desktop/crypto/footer.ts";
+import { compress, inflate, isCompact } from "../dsig.desktop/crypto/packet.ts";
+import { buildPayload, canonicalizeContent } from "../dsig.desktop/crypto/payload.ts";
+import { parseStatus } from "../dsig.desktop/crypto/status.ts";
+import { importPubkeyInfo, listSecretKeys, probe, sign, verify } from "../dsig.desktop/native.ts";
 import { GPG, gpgAvailable, makeKeyring, withKeyring, type TestKeyring } from "./helpers.ts";
 
 const hasGpg = gpgAvailable();
