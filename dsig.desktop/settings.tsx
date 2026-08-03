@@ -103,14 +103,6 @@ export const settings = definePluginSettings({
     },
 
     // ── Backend ──────────────────────────────────────────
-    backend: {
-        type: OptionType.SELECT,
-        description: "Crypto backend",
-        options: [
-            { label: "System gpg (recommended, desktop only)", value: "gpg", default: true },
-            { label: "openpgp.js (works on web, key stored in-app)", value: "openpgp" }
-        ]
-    },
     gpgPath: {
         type: OptionType.STRING,
         description: "Path to the gpg binary",

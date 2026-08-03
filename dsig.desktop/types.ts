@@ -20,7 +20,7 @@ export type SignMode = "compact" | "armored";
  *              drawing nothing, for any message length
  */
 export type FooterStyle = "plain" | "subtext" | "hidden";
-export type BackendName = "gpg" | "openpgp";
+export type BackendName = "gpg";
 
 export type VerifyStatus =
     | "valid"

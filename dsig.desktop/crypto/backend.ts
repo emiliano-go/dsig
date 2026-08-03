@@ -5,10 +5,10 @@
  */
 
 /*
- * dsig: backend selection.
+ * dsig: the crypto backend.
  *
- * Both backends expose the same four operations. The gpg backend forwards to
- * the main process (native.ts); the openpgp.js one runs in the renderer.
+ * Every operation forwards to the main process (native.ts), which drives the
+ * system gpg. The secret key therefore never enters the renderer.
  */
 
 import { Logger } from "@utils/Logger";
@@ -16,26 +16,18 @@ import type { PluginNative } from "@utils/types";
 
 import { settings } from "../settings";
 import type { BackendName, KeyInfo, VerifyNativeResult } from "../types";
-import * as opgp from "./openpgp";
 
 export const logger = new Logger("dsig", "#8b5cf6");
 
 type NativeApi = PluginNative<typeof import("../native")>;
 
-/** null on web / in a renderer without the native helper. */
+/** null in a renderer without the native helper. */
 export function getNative(): NativeApi | null {
     return (window as any).VencordNative?.pluginHelpers?.Dsig ?? null;
 }
 
 export function nativeAvailable(): boolean {
     return getNative() != null;
-}
-
-/** The backend actually in use, honouring the setting but falling back on web. */
-export function activeBackend(): BackendName {
-    const wanted = settings.store.backend as BackendName;
-    if (wanted === "gpg" && !nativeAvailable()) return "openpgp";
-    return wanted ?? "gpg";
 }
 
 export interface Backend {
@@ -85,16 +77,6 @@ const gpgBackend: Backend = {
     }
 };
 
-const openpgpBackend: Backend = {
-    name: "openpgp",
-    listSecretKeys: () => opgp.listSecretKeys(),
-    sign: payload => opgp.sign(payload),
-    verify: (payload, sig, pub) => opgp.verify(payload, sig, pub),
-    pubkeyInfo: armored => opgp.pubkeyInfo(armored),
-    pubkeyKeys: armored => opgp.pubkeyKeys(armored),
-    exportPubkey: () => opgp.exportPubkey()
-};
-
 export function getBackend(): Backend {
-    return activeBackend() === "openpgp" ? openpgpBackend : gpgBackend;
+    return gpgBackend;
 }

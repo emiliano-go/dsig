@@ -18,6 +18,14 @@ import type { PinnedPeer, VerifyResult } from "./types";
 const PEERS_KEY = "dsig:peers";
 const CACHE_KEY = "dsig:verifyCache";
 
+/** Written by the removed openpgp.js backend; a private key must not linger. */
+const LEGACY_PRIVKEY_KEY = "dsig:openpgpPrivateKey";
+
+/** One-shot cleanup for users who ran the openpgp.js backend. */
+export async function dropLegacyPrivateKey(): Promise<void> {
+    await DataStore.del(LEGACY_PRIVKEY_KEY);
+}
+
 /** Keeping the cache bounded matters: channels scroll forever. */
 const CACHE_LIMIT = 500;
 

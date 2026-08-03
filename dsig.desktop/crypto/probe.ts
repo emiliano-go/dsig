@@ -222,9 +222,9 @@ export function analyzeProbe(received: string): ProbeReport {
         const chars = Math.ceil(NEEDED_BITS / bitsPerBaseChar);
         verdict = `${survivingBases.length} zero-width base characters survive: sequence coding carries `
             + `${bitsPerBaseChar} bit(s)/char, a signature needs ~${chars} invisible chars `
-            + `(message limit 2000). Run the long-run probe to confirm runs of that length survive, `
-            + `and check the result on a client without the plugin (or with Hide footer off): `
-            + `this probe measures survival, not how other people's fonts render it.`;
+            + "(message limit 2000). Run the long-run probe to confirm runs of that length survive, "
+            + "and check the result on a client without the plugin (or with Hide footer off): "
+            + "this probe measures survival, not how other people's fonts render it.";
     } else if (survivingBases.length === 1) {
         verdict = "one zero-width base survives: sequences of a single character carry no data by "
             + "themselves, but combined with the 16 selectors as marks it may still work. "

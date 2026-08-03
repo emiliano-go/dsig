@@ -21,7 +21,7 @@ const DM_TYPES = new Set([1, 3]); // DM, GROUP_DM
 
 export function shouldSign(channelId: string): boolean {
     if (!settings.store.signOutgoing) return false;
-    if (!settings.store.signingKey && settings.store.backend === "gpg") return false;
+    if (!settings.store.signingKey) return false;
 
     switch (settings.store.signChannels) {
         case "dm": {

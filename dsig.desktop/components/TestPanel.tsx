@@ -17,7 +17,7 @@ import { Button } from "@components/Button";
 import { Paragraph } from "@components/Paragraph";
 import { ChannelStore, MessageStore, React, SelectedChannelStore, TextInput, UserStore, useState } from "@webpack/common";
 
-import { activeBackend, getBackend } from "../crypto/backend";
+import { getBackend } from "../crypto/backend";
 import { encodeFooter, extractFooter, hasFooter, hasHiddenRun, hiddenReport } from "../crypto/footer";
 import { compress, inflate, isCompact, signerFingerprint } from "../crypto/packet";
 import { buildPayload, canonicalizeContent } from "../crypto/payload";
@@ -254,7 +254,7 @@ export function TestPanel() {
             const bad = await backend.verify(tampered, packet, pinned?.armoredPubkey ?? "");
             out.push({ ok: !bad.good, text: bad.good ? "TAMPERED CONTENT STILL VERIFIED: do not trust this setup" : "tampered content correctly rejected" });
 
-            out.push({ ok: true, text: `backend: ${activeBackend()} · total ${(performance.now() - started).toFixed(0)} ms` });
+            out.push({ ok: true, text: `backend: ${backend.name} · total ${(performance.now() - started).toFixed(0)} ms` });
         } catch (e) {
             out.push({ ok: false, text: (e as Error).message });
         } finally {

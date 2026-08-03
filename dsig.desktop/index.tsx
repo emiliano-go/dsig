@@ -23,12 +23,12 @@ import { FluxDispatcher, React, Toasts, UserStore } from "@webpack/common";
 import { Badge } from "./components/Badge";
 import { LockIcon, SignToggle } from "./components/SignToggle";
 import { logger } from "./crypto/backend";
-import { stripTrailingFooters } from "./crypto/footer";
+import { stripHidden, stripHiddenRuns, stripTrailingFooters } from "./crypto/footer";
 import { isProbe, isProbe2 } from "./crypto/probe";
 import { stripFooterNodes } from "./render";
 import { settings } from "./settings";
 import { shouldSign, signContent } from "./sign";
-import { invalidate, loadCache, loadPeers } from "./store";
+import { dropLegacyPrivateKey, invalidate, loadCache, loadPeers } from "./store";
 
 function warn(reason: string) {
     logger.warn("sending unsigned:", reason);
@@ -81,6 +81,33 @@ const preEdit = async (channelId: string, messageId: string, msg: { content: str
  * it there means the user edits their own prose and `preEdit` re-signs it, but
  * only where a signature will actually be put back, or an edit in a channel we
  * do not sign would quietly drop the signature that was already there.
+ *
+ * Both shapes have to go: the visible ‖dsig line, and the invisible run, which
+ * draws nothing but is still there to arrow through and to trip the character
+ * counter. In hidden mode the whole alphabet goes, because `signContent`
+ * strips it too, so this leaves the box holding exactly what will be signed.
+ *
+ * Never throws: a failure here would break editing entirely, and a footer left
+ * in the box is the harmless outcome.
+ */
+function stripFooterForEdit(channelId: string, content: string): string {
+    try {
+        if (typeof content !== "string" || !shouldSign(channelId)) return content;
+        const withoutLine = stripTrailingFooters(content);
+        return settings.store.footerStyle === "hidden"
+            ? stripHidden(withoutLine)
+            : stripHiddenRuns(withoutLine);
+    } catch (e) {
+        logger.error("failed to strip the footer for editing", e);
+        return content;
+    }
+}
+
+/**
+ * Discord builds the edit action from its own ActionTypes constants, so there
+ * is no `type:"MESSAGE_START_EDIT"` literal in the bundle to patch. An
+ * interceptor sees the action whatever route it came by, and edits it in place
+ * before the editor is filled.
  */
 function interceptEditStart(): (() => void) | null {
     const dispatcher = FluxDispatcher as any;
@@ -90,12 +117,8 @@ function interceptEditStart(): (() => void) | null {
     }
 
     const interceptor = (action: any) => {
-        try {
-            if (action?.type === "MESSAGE_START_EDIT" && typeof action.content === "string" && shouldSign(action.channelId))
-                action.content = stripTrailingFooters(action.content);
-        } catch (e) {
-            logger.error("failed to strip the footer for editing", e);
-        }
+        if (action?.type === "MESSAGE_START_EDIT" && typeof action.content === "string")
+            action.content = stripFooterForEdit(action.channelId, action.content);
         return false; // never swallow the action
     };
 
@@ -114,7 +137,7 @@ let stopIntercepting: (() => void) | null = null;
 export default definePlugin({
     name: "Dsig",
     description: "Signs your messages with your GPG key and verifies signed messages from peers you have pinned. Not encryption: authorship only.",
-    authors: [{ name: "Emiliano Gandini Outeda", id: 0n }],
+    authors: [{ name: "Emiliano Gandini Outeda", id: 456132385218625543n }],
     settings,
 
     // Render-time removal of the footer line. Falls back gracefully: if this
@@ -141,6 +164,8 @@ export default definePlugin({
 
     async start() {
         await Promise.all([loadPeers(), loadCache()]).catch(e => logger.error("failed to load stored data", e));
+        // Nothing reads it any more, and it is a private key.
+        dropLegacyPrivateKey().catch(e => logger.error("failed to drop the stored openpgp.js key", e));
 
         addMessagePreSendListener(preSend);
         addMessagePreEditListener(preEdit);

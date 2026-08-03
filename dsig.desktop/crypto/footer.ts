@@ -125,7 +125,9 @@ const SYMBOL_INDEX = new Map<string, number>([...HIDDEN_ALPHABET].map((ch, i) =>
 export const HIDDEN_ALPHABET_RE_G = new RegExp(`[${HIDDEN_ALPHABET}${HIDDEN_LEGACY}]`, "g");
 /** Everything any version of the hidden footer was ever made of, for stripping
  *  it back out: current alphabet, v3 extras, legacy variation selectors. */
-export const HIDDEN_ANYWHERE_G = new RegExp(`[${HIDDEN_ALPHABET}${HIDDEN_LEGACY}\\uFE00-\\uFE0F]`, "g");
+// The selectors are a separate branch on purpose: a class holding a base
+// character next to FE00-FE0F reads as one combined character.
+export const HIDDEN_ANYWHERE_G = new RegExp(`[${HIDDEN_ALPHABET}${HIDDEN_LEGACY}]|[\\uFE00-\\uFE0F]`, "g");
 /** A run long enough to be ours, used to locate the footer in a message. */
 const HIDDEN_RUN_RE_G = new RegExp(`[${HIDDEN_ALPHABET}]{${MIN_SYMBOLS},}`, "g");
 
@@ -289,6 +291,19 @@ export function hiddenReport(raw: string): {
 /** True when the message carries a run long enough to be a hidden footer. */
 export function hasHiddenRun(raw: string): boolean {
     return hiddenReport(raw).symbols > 0;
+}
+
+/**
+ * Remove runs long enough to be footers, and the space that separated them
+ * from the text.
+ *
+ * Unlike `stripHidden` this leaves lone alphabet characters be: a single ZWNJ
+ * in the middle of a sentence is somebody shaping a Persian word, not a
+ * footer. That makes it the right tool for text the user is about to edit,
+ * where anything removed is removed from what they typed.
+ */
+export function stripHiddenRuns(raw: string): string {
+    return raw.replace(HIDDEN_RUN_RE_G, "").replace(/ +$/, "");
 }
 
 
