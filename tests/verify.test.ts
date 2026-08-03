@@ -240,7 +240,7 @@ describe("verify", { skip: hasGpg ? false : "gpg not installed" }, () => {
         const text = "a message with enough characters in it to hide a whole signature, invisibly";
         const msg = await sentMessage(text);
 
-        assert.equal(msg.content.replace(/[\u1160\u115F\uFFA0\u2060\u2062\u200B\u200C\u180E]/g, ""), text, "not one visible character was added");
+        assert.equal(msg.content.replace(/[\u200B\u200C\u2060\u2062]/g, ""), text + " ", "nothing visible beyond the separator space was added");
         assert.ok(!msg.content.includes("dsig:1:"), "nothing visible was appended");
         assert.equal((await resolve(msg)).status, "valid");
     });
@@ -252,8 +252,21 @@ describe("verify", { skip: hasGpg ? false : "gpg not installed" }, () => {
         await pinSelf();
 
         const msg = await sentMessage("hi");
-        assert.equal(msg.content.replace(/[\u1160\u115F\uFFA0\u2060\u2062\u200B\u200C\u180E]/g, ""), "hi");
+        assert.equal(msg.content.replace(/[\u200B\u200C\u2060\u2062]/g, ""), "hi ");
         assert.equal((await resolve(msg)).status, "valid");
+    });
+
+    it("still verifies invisibly when the text itself has zero-width characters", async () => {
+        // U+200C and U+200B belong to the hidden alphabet but also occur in
+        // real text (ZWNJ in Persian, ZWSP in pasted prose). The sign path
+        // strips them before signing, so the signed text and the sent text
+        // agree and the signature verifies.
+        settings.store.footerStyle = "hidden";
+        await pinSelf();
+
+        const msg = await sentMessage("\u0646\u06CC\u0645\u200C\u0641\u0627\u0635\u0644\u0647 and a\u200Bsoft break");
+        const res = await resolve(msg);
+        assert.equal(res.status, "valid");
     });
 
     it("verifies armored-mode signatures and reads the signer from the packet", async () => {

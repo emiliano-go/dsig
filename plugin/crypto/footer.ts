@@ -80,17 +80,21 @@ export function encodeFooter(signedTsMs: number, blob: Uint8Array, style: Footer
 // The capacity probe (crypto/probe.ts) settled it with measurement. Zero-width
 // *base* characters are not subject to the mark caps: a 600-character run of
 // them came back byte for byte, in order. So the footer is a sequence of such
-// characters, each drawn from a fixed alphabet, three bits apiece — data lives
+// characters, each drawn from a fixed alphabet, two bits apiece: data lives
 // in *which* character appears, not in marks stacked on one.
 //
-// The alphabet is eight codepoints the probe returned at 16/16, all zero-width,
-// none with joining or bidi behaviour that could disturb the visible text:
+// The alphabet is four format characters, all of which the probe returned at
+// 16/16, and all zero-width *by definition*, not merely inkless: they are
+// controls, so no font gives them advance width. The v3 alphabet also used
+// hangul fillers (U+1160 U+115F U+FFA0) and U+180E for three bits per symbol,
+// but those are letters (or, for U+180E, an ex-space): no ink, yet a full
+// letter's width in the fallback fonts of every client without the plugin.
+// The run showed up as lines of blank space; survival had been measured,
+// invisibility only assumed.
 //
-//   U+1160 U+115F U+FFA0  hangul fillers (Lo letters, inert)
-//   U+2060               word joiner
-//   U+2062               invisible times
-//   U+200B U+200C        zero-width space / non-joiner
-//   U+180E               mongolian vowel separator
+//   U+200B U+200C  zero-width space / non-joiner
+//   U+2060         word joiner
+//   U+2062         invisible times
 //
 // The run is appended after the message. It carries a magic byte, a version, a
 // length and a CRC-8, so a stream damaged in transit reports itself as damaged
@@ -98,12 +102,15 @@ export function encodeFooter(signedTsMs: number, blob: Uint8Array, style: Footer
 // length floor: a one-character message, or a media message with no text at
 // all, carries the whole signature in the appended run.
 
-const HIDDEN_ALPHABET = "ᅠᅟﾠ⁠⁢​‌᠎";
-/** 8 symbols → 3 bits each. */
-const HIDDEN_BITS = 3;
+const HIDDEN_ALPHABET = "​‌⁠⁢";
+/** 4 symbols → 2 bits each. */
+const HIDDEN_BITS = 2;
+const HIDDEN_MASK = (1 << HIDDEN_BITS) - 1;
+/** The v3 alphabet's extra symbols, still stripped so old messages clean up. */
+const HIDDEN_LEGACY = "ᅠᅟﾠ᠎";
 
 const HIDDEN_MAGIC = 0xd5;
-const HIDDEN_VERSION = 3;
+const HIDDEN_VERSION = 4;
 /** Room for a millisecond timestamp until the year 10889. */
 const TS_BYTES = 6;
 /** magic, version, blob length, timestamp. */
@@ -113,11 +120,12 @@ const MIN_SYMBOLS = Math.ceil(((HEADER_BYTES + 2) * 8) / HIDDEN_BITS);
 
 const SYMBOL_INDEX = new Map<string, number>([...HIDDEN_ALPHABET].map((ch, i) => [ch, i]));
 
-/** Everything the hidden footer is made of, for stripping it back out. Legacy
- *  variation selectors are included so an older message cleans up too. */
-export const MARK_RE_G = /[︀-️]/g;
-export const HIDDEN_ALPHABET_RE_G = new RegExp(`[${HIDDEN_ALPHABET}]`, "g");
-export const HIDDEN_ANYWHERE_G = new RegExp(`[${HIDDEN_ALPHABET}\\uFE00-\\uFE0F]`, "g");
+/** Alphabet plus legacy symbols, for places that must leave variation
+ *  selectors be. */
+export const HIDDEN_ALPHABET_RE_G = new RegExp(`[${HIDDEN_ALPHABET}${HIDDEN_LEGACY}]`, "g");
+/** Everything any version of the hidden footer was ever made of, for stripping
+ *  it back out: current alphabet, v3 extras, legacy variation selectors. */
+export const HIDDEN_ANYWHERE_G = new RegExp(`[${HIDDEN_ALPHABET}${HIDDEN_LEGACY}\\uFE00-\\uFE0F]`, "g");
 /** A run long enough to be ours, used to locate the footer in a message. */
 const HIDDEN_RUN_RE_G = new RegExp(`[${HIDDEN_ALPHABET}]{${MIN_SYMBOLS},}`, "g");
 
@@ -150,7 +158,7 @@ function frame(signedTsMs: number, blob: Uint8Array): Uint8Array {
     return bytes;
 }
 
-/** Bytes → invisible symbols, three bits per symbol, MSB first. */
+/** Bytes → invisible symbols, HIDDEN_BITS per symbol, MSB first. */
 function encodeSeq(bytes: Uint8Array): string {
     let out = "";
     let acc = 0;
@@ -160,10 +168,10 @@ function encodeSeq(bytes: Uint8Array): string {
         bits += 8;
         while (bits >= HIDDEN_BITS) {
             bits -= HIDDEN_BITS;
-            out += HIDDEN_ALPHABET[(acc >> bits) & 0b111];
+            out += HIDDEN_ALPHABET[(acc >> bits) & HIDDEN_MASK];
         }
     }
-    if (bits > 0) out += HIDDEN_ALPHABET[(acc << (HIDDEN_BITS - bits)) & 0b111];
+    if (bits > 0) out += HIDDEN_ALPHABET[(acc << (HIDDEN_BITS - bits)) & HIDDEN_MASK];
     return out;
 }
 
@@ -196,10 +204,15 @@ export function stripHidden(raw: string): string {
  * Always succeeds, for a message of any length including none at all: the run
  * carries its own data and needs nothing from the message. Any stray footer
  * characters already present are removed first so they cannot corrupt the run.
+ *
+ * One ordinary space separates the text from the run. Discord's link parser
+ * swallows invisible characters adjacent to a trailing URL into the link
+ * target, breaking it for everyone; a space is where every parser stops, and
+ * a trailing space draws nothing. It is trimmed back out on the way in.
  */
 export function embedHidden(raw: string, signedTsMs: number, blob: Uint8Array): string {
-    const content = stripHidden(raw);
-    return content + encodeSeq(frame(signedTsMs, blob));
+    const content = stripHidden(raw).replace(/\s+$/, "");
+    return content + (content ? " " : "") + encodeSeq(frame(signedTsMs, blob));
 }
 
 interface HiddenParse {
@@ -279,16 +292,14 @@ export function hasHiddenRun(raw: string): boolean {
 }
 
 
-// ── parsing ──────────────────────────────────────────────────────
-
 /** Append a footer to a message body, on its own line. */
 export function attachFooter(content: string, signedTsMs: number, blob: Uint8Array, style: FooterStyle): string {
     return content + "\n" + encodeFooter(signedTsMs, blob, style);
 }
 
-// ── parsing ───────────────────────────────────────────────────────────────
+// ── parsing ──────────────────────────────────────────────────────
 
-/** True when the message carries a footer at all (cheap pre-check). */
+/** True when the message carries a footer of any style. */
 export function hasFooter(raw: string): boolean {
     if (decodeHidden(raw)) return true;
     return raw.includes(`${FOOTER_MARK}dsig:1:`) && FOOTER_RE.test(raw);
@@ -335,8 +346,10 @@ export function extractFooter(raw: string): ParsedFooter | null {
         const hidden = decodeHidden(raw);
         if (!hidden) return null;
         // The hidden footer is a run appended to the text, so the body is the
-        // message with that run (and any legacy selectors) taken back out.
-        return { ...hidden, body: stripHidden(raw), line: "" };
+        // message with that run (and any legacy selectors) taken back out,
+        // minus the separator space. Signed content never ends in whitespace
+        // (canonicalisation trims it), so trimming here loses nothing.
+        return { ...hidden, body: stripHidden(raw).replace(/\s+$/, ""), line: "" };
     }
 
     // Also swallow the newline that separates the body from the footer.

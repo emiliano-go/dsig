@@ -97,6 +97,9 @@ It is still visible clutter, and that is the real cost of this plugin. Consider
 | **Node + pnpm** | to build Vencord from source, which is what userplugins require |
 | **A GPG key you control** | see below |
 
+Any OS works: Linux (any distro; Flatpak Vesktop included), Windows and macOS. On Windows,
+install [Gpg4win](https://gpg4win.org) (`winget install GnuPG.Gpg4win`) so `gpg` is on PATH.
+
 Web Discord can only use the openpgp.js backend; see
 [Known limitations](#known-limitations).
 
@@ -174,15 +177,26 @@ cd ~/Documents/GitHub/Vencord
 pnpm install
 ```
 
-Then, from this repo:
+Then, from this repo, on Linux or macOS:
 
 ```sh
 ./install.sh ~/Documents/GitHub/Vencord
 ```
 
-That copies `plugin/` into `Vencord/src/userplugins/dsig` and rebuilds. (It copies rather than
-symlinks: esbuild resolves real paths, so a symlink pointing outside the tree breaks Vencord's
-`@api/…` aliases.) The path argument defaults to `~/Documents/GitHub/Vencord`.
+or on Windows (PowerShell):
+
+```powershell
+.\install.ps1 -Vencord $HOME\Documents\GitHub\Vencord
+# if scripts are blocked by policy:
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Either script copies `plugin/` into `Vencord/src/userplugins/dsig` and rebuilds. (It copies
+rather than symlinks: esbuild resolves real paths, so a symlink pointing outside the tree breaks
+Vencord's `@api/…` aliases.) The path argument defaults to `~/Documents/GitHub/Vencord`; both
+scripts also check for node/pnpm (enabling corepack if that is what provides pnpm) and run
+`pnpm install` for you if the checkout is fresh. If you would rather not run a script, see
+[Manual install](#manual-install-what-the-scripts-do).
 
 ### Point your client at the build
 
@@ -190,15 +204,28 @@ symlinks: esbuild resolves real paths, so a symlink pointing outside the tree br
 
 > Vesktop → Settings → **Vencord Location** → select `~/Documents/GitHub/Vencord/dist`
 
-or, with Vesktop closed, in `~/.config/vesktop/state.json`:
+or, with Vesktop closed, add the key to `state.json`:
 
 ```json
 { "vencordDir": "/home/you/Documents/GitHub/Vencord/dist" }
 ```
 
+where `state.json` lives at:
+
+| Platform | Path |
+|---|---|
+| Linux (native) | `~/.config/vesktop/state.json` |
+| Linux (Flatpak) | `~/.var/app/dev.vencord.Vesktop/config/vesktop/state.json` |
+| Windows | `%APPDATA%\vesktop\state.json` |
+| macOS | `~/Library/Application Support/vesktop/state.json` |
+
+Flatpak note: the Flatpak sandbox cannot read arbitrary home directories. Grant it access to
+the build once (`flatpak override --user --filesystem=$HOME/Documents/GitHub/Vencord/dist dev.vencord.Vesktop`)
+or pick a directory it can already see.
+
 Vesktop validates that directory by looking for `package.json` plus `vencordDesktopMain.js`,
 `vencordDesktopPreload.js`, `vencordDesktopRenderer.js` and `vencordDesktopRenderer.css`.
-`install.sh` creates the `package.json` if it is missing. Note that this **disables Vesktop's
+The install scripts create the `package.json` if it is missing. Note that this **disables Vesktop's
 automatic Vencord updates**; you now update Vencord yourself, see [Updating](#updating).
 
 **Discord Desktop**: the standard route applies:
@@ -208,6 +235,60 @@ cd ~/Documents/GitHub/Vencord && pnpm inject
 ```
 
 Restart the client either way.
+
+### Manual install (what the scripts do)
+
+The scripts are a convenience; the steps are the same on every OS and take a minute by hand.
+Anywhere a command differs, the PowerShell form follows the shell form.
+
+1. **Prepare Vencord** (once):
+
+   ```sh
+   git clone https://github.com/Vendicated/Vencord.git
+   cd Vencord
+   pnpm install          # if pnpm is missing: corepack enable pnpm
+   ```
+
+2. **Copy the plugin in.** Copy this repo's `plugin/` directory to
+   `Vencord/src/userplugins/dsig`. It must be a real copy, not a symlink; on a re-install,
+   delete the old copy first.
+
+   ```sh
+   rm -rf path/to/Vencord/src/userplugins/dsig
+   cp -R plugin path/to/Vencord/src/userplugins/dsig
+   ```
+
+   ```powershell
+   Remove-Item -Recurse -Force path\to\Vencord\src\userplugins\dsig
+   Copy-Item -Recurse plugin path\to\Vencord\src\userplugins\dsig
+   ```
+
+3. **Build Vencord**, from the Vencord directory. `CI=true` keeps the build non-interactive:
+
+   ```sh
+   CI=true pnpm build
+   ```
+
+   ```powershell
+   $env:CI = "true"; pnpm build
+   ```
+
+4. **Make `dist/` valid for Vesktop.** Vesktop checks for a `package.json` next to the four
+   `vencordDesktop*` files; create an empty one if the build did not:
+
+   ```sh
+   echo '{}' > dist/package.json
+   ```
+
+   ```powershell
+   Set-Content dist\package.json "{}"
+   ```
+
+5. **Point the client at the build** as described in
+   [Point your client at the build](#point-your-client-at-the-build): Vesktop's *Vencord
+   Location* setting (or `state.json`), or `pnpm inject` for Discord Desktop.
+
+6. **Restart the client.** The plugin appears under Settings as **Dsig**.
 
 ---
 
@@ -314,7 +395,8 @@ cached signatures take tens of milliseconds. Verification never needs the agent 
 
 | Setting | Default | Notes |
 |---|---|---|
-| **Sign my outgoing messages** | on | master switch for the signing half |
+| **Sign my outgoing messages** | on | master switch for the signing half; also toggled by the chat bar lock |
+| **Show a lock in the chat bar** | on | a padlock next to the emoji button: closed = signing, open (red) = not; click to toggle |
 | **Signing key** | none | Ed25519 `[S]` subkey recommended; stored with a trailing `!` |
 | **Footer style** | Small grey line | *Small grey line*, *Plain line of text*, or *Invisible*. See [footer style](#footer-style) |
 | **Signature format** | Compact | Compact = 113-char footer, plugin-only. Armored = 177 chars, verifiable by plain `gpg --verify` |
@@ -346,7 +428,7 @@ own.
 |---|---|---|
 | **Small grey line** (default) | the footer as Discord subtext: small, grey, one line | none |
 | **Plain line of text** | a full-size line of base64 | loud |
-| **Invisible** | nothing at all | about 220 zero-width characters appended, whatever the message length |
+| **Invisible** | nothing at all | about 330 zero-width characters appended, whatever the message length |
 
 ### How the invisible style works, and why it looks like that
 
@@ -364,15 +446,25 @@ The break came from measuring what *base* characters Discord keeps, not what it 
 zero-width base characters come through at 16/16, and a 600-character run of them came back byte
 for byte, in order. So the invisible footer is a run of such characters appended after the
 message, and the data lives in *which* character appears, not in marks stacked on one. The
-alphabet is eight codepoints the probe returned at 16/16, three bits each:
+alphabet is four format characters the probe returned at 16/16, two bits each:
 
-`U+1160` `U+115F` `U+FFA0` (hangul fillers), `U+2060` (word joiner), `U+2062` (invisible times),
-`U+200B` (zero width space), `U+200C` (zero width non-joiner), `U+180E` (mongolian vowel
-separator) - all zero-width, none with joining or bidi behaviour. A compact signature rides in a
-framed 82-byte stream, so about 220 invisible characters. There is no length floor: the run
+`U+200B` (zero width space), `U+200C` (zero width non-joiner), `U+2060` (word joiner) and
+`U+2062` (invisible times) - all zero-width *by definition*, since they are controls rather than
+letters, so no fallback font can give them width. That distinction was learned the hard way: the
+v3 alphabet also used the hangul fillers (`U+1160` `U+115F` `U+FFA0`) and `U+180E` for three
+bits per symbol, and they draw no ink, but they are letters (or, for `U+180E`, an ex-space) and
+carry a letter's advance width in the fonts every plugin-less client falls back to. A v3 run
+survived Discord byte for byte and still showed up as lines of blank space; the probe had
+measured survival, and invisibility had only been assumed. A compact signature rides in a
+framed 82-byte stream, so about 330 invisible characters. One ordinary space separates the
+text from the run: Discord's link parser swallows invisible characters glued to a trailing URL
+into the link target, breaking the link for everyone, and a space is where every parser stops
+(it is trimmed back out before verification). There is no length floor: the run
 carries all its own data, so even a one-character message (or a media message with no text at
 all) gets a hidden signature; the only constraint is Discord's 2000-character message limit,
-which the sign path refuses to exceed.
+which the sign path refuses to exceed. Because the alphabet overlaps ordinary text (`U+200C`
+joins Persian words, `U+200B` rides along in pasted prose), hidden mode strips those codepoints
+from the message before signing: the signed text and the sent text are one string.
 
 The exact channel is measured, not assumed. The diagnostics panel has a **capacity probe**: it
 copies a crafted message containing every candidate invisible character to your clipboard; you
@@ -447,8 +539,8 @@ The *small grey line* style prefixes that with Discord's `-# ` subtext marker; t
 optional on the way in, so both styles parse identically. The *invisible* style carries the same
 two fields in the framed stream
 `[magic 0xD5][version][blob length][6-byte signed_ts_ms][signature blob][crc8]`, written as
-three bits per symbol over an eight-character alphabet of zero-width characters, appended after
-the message.
+two bits per symbol over a four-character alphabet of zero-width format characters, appended
+after the message with a single separating space so a trailing URL stays intact.
 The length byte and the trailing CRC-8 make damage legible instead of mysterious: a stream whose
 tail was cut reports "the signature was cut: N of M bytes arrived", altered bytes fail the
 checksum, and anything under 255 bytes (both signature shapes) fits. A message carries exactly
@@ -515,7 +607,11 @@ That bounds replay and backdating without needing a trusted timestamp authority.
 After editing anything under `plugin/`:
 
 ```sh
-./install.sh ~/Documents/GitHub/Vencord   # copies + rebuilds
+./install.sh ~/Documents/GitHub/Vencord    # copies + rebuilds
+```
+
+```powershell
+.\install.ps1 -Vencord $HOME\Documents\GitHub\Vencord
 ```
 
 and restart the client.
@@ -604,14 +700,15 @@ dsig/
 │   │   └── openpgp.ts   openpgp.js backend (web)
 │   └── components/      Badge, KeyPicker, PeerManager, TestPanel
 ├── tests/           node:test suite
-└── install.sh
+├── install.sh       copy into Vencord + rebuild (Linux, macOS)
+└── install.ps1      the same for Windows (PowerShell)
 ```
 
 ```sh
 npm test
 ```
 
-139 tests, run against the real `gpg` binary in a throwaway keyring under `/tmp`; your own
+142 tests, run against the real `gpg` binary in a throwaway keyring under `/tmp`; your own
 keyring is never touched, and the gpg-dependent suites skip themselves if gpg is missing. They
 cover canonicalisation idempotence, the base64 and footer codecs (all three footer shapes,
 including damage in transit and the capacity probe), byte-identical OpenPGP packet round-trips
@@ -635,12 +732,14 @@ produces a bundle containing the plugin and registering its native module.
   markdown content renderer (the same insertion point FakeNitro uses). If Discord's bundle
   shifts, the patch stops applying and the footer simply becomes visible.
 - **The invisible style depends on Discord's current text normalisation.** The design (an
-  appended run of eight zero-width characters) was measured against the live client with the
+  appended run of four zero-width format characters) was measured against the live client with the
   diagnostics probe, but a client update could strip or reorder the run; the message then
   arrives unsigned and the badge silently disappears. **Check my last message** in the
   diagnostics shows exactly what survived. The run also eats into the 2000-character message
   limit, so a very long message cannot be signed invisibly (the plugin says so rather than
-  sending an unsigned footer).
+  sending an unsigned footer). And because the alphabet doubles as ordinary text, hidden mode
+  removes those codepoints (and the retired v3 alphabet's) from what you typed; in scripts that
+  rely on `U+200C` for word shaping (Persian, for one), prefer the subtext style.
 - **The openpgp.js backend is untested.** It loads openpgp.js at runtime from `cdn.jsdelivr.net`
   (on Vencord's CSP allowlist) and cannot be exercised from Node. Web Discord has no main process
   and therefore no access to your gpg keyring, so it is the only option there, at the cost of

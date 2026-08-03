@@ -273,7 +273,7 @@ export function TestPanel() {
 
             <Paragraph className={cl("muted")}>
                 Capacity probe: measure which invisible characters survive Discord. Copy the probe,
-                send it in a private channel, then Analyze — the result says whether an invisible
+                send it in a private channel, then Analyze; the result says whether an invisible
                 signature is possible at all.
             </Paragraph>
             <div className={cl("row")}>

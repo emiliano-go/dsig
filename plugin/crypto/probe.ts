@@ -45,16 +45,22 @@ export interface Candidate {
 export const REPEATS = 16;
 
 export const CANDIDATES: Candidate[] = [
-    // Zero-width base characters: the interesting class. If any survive in
-    // runs, data can be encoded in sequences of them, outside the mark cap.
-    { tag: "a", char: "\u1160", name: "U+1160 hangul jungseong filler", role: "base", zeroWidth: true },
-    { tag: "b", char: "\u115F", name: "U+115F hangul choseong filler", role: "base", zeroWidth: true },
+    // Base characters that draw no ink. `zeroWidth` means zero *advance
+    // width* on a client without the plugin, which this probe cannot measure:
+    // it is a property of other people's fonts, not of what the server keeps.
+    // The hangul fillers are the cautionary tale: they survived 16/16 and drew
+    // nothing, but they are letters, and fallback fonts give them a letter's
+    // width; a v3 footer showed up as lines of blank space. Only format
+    // controls are marked zero-width now, because for them it holds by
+    // definition rather than by font.
+    { tag: "a", char: "\u1160", name: "U+1160 hangul jungseong filler (letter: has advance width)", role: "base", zeroWidth: false },
+    { tag: "b", char: "\u115F", name: "U+115F hangul choseong filler (letter: has advance width)", role: "base", zeroWidth: false },
     { tag: "c", char: "\u3164", name: "U+3164 hangul filler", role: "base", zeroWidth: false },
-    { tag: "d", char: "\uFFA0", name: "U+FFA0 halfwidth hangul filler", role: "base", zeroWidth: true },
-    { tag: "e", char: "\u17B4", name: "U+17B4 khmer vowel inherent aq", role: "base", zeroWidth: true },
-    { tag: "f", char: "\u17B5", name: "U+17B5 khmer vowel inherent aa", role: "base", zeroWidth: true },
+    { tag: "d", char: "\uFFA0", name: "U+FFA0 halfwidth hangul filler (halfwidth: has advance width)", role: "base", zeroWidth: false },
+    { tag: "e", char: "\u17B4", name: "U+17B4 khmer vowel inherent aq (width varies by font)", role: "base", zeroWidth: false },
+    { tag: "f", char: "\u17B5", name: "U+17B5 khmer vowel inherent aa (width varies by font)", role: "base", zeroWidth: false },
 
-    // Format characters: measured stripped once (U+2062); confirm the class.
+    // Format characters: zero-width by definition, no font involved.
     { tag: "g", char: "\u200B", name: "U+200B zero width space", role: "base", zeroWidth: true },
     { tag: "h", char: "\u200C", name: "U+200C zero width non-joiner", role: "base", zeroWidth: true },
     { tag: "i", char: "\u200D", name: "U+200D zero width joiner", role: "base", zeroWidth: true },
@@ -62,7 +68,7 @@ export const CANDIDATES: Candidate[] = [
     { tag: "k", char: "\u2062", name: "U+2062 invisible times", role: "base", zeroWidth: true },
     { tag: "l", char: "\uFEFF", name: "U+FEFF zero width no-break space", role: "base", zeroWidth: true },
     { tag: "m", char: "\u061C", name: "U+061C arabic letter mark", role: "base", zeroWidth: true },
-    { tag: "n", char: "\u180E", name: "U+180E mongolian vowel separator", role: "base", zeroWidth: true },
+    { tag: "n", char: "\u180E", name: "U+180E mongolian vowel separator (a space before Unicode 6.3: width varies)", role: "base", zeroWidth: false },
 
     // Invisible combining marks beyond the 16 variation selectors. Every one
     // that survives widens the per-mark alphabet and its 4 bits per mark.
@@ -216,7 +222,9 @@ export function analyzeProbe(received: string): ProbeReport {
         const chars = Math.ceil(NEEDED_BITS / bitsPerBaseChar);
         verdict = `${survivingBases.length} zero-width base characters survive: sequence coding carries `
             + `${bitsPerBaseChar} bit(s)/char, a signature needs ~${chars} invisible chars `
-            + `(message limit 2000). Run the long-run probe to confirm runs of that length survive.`;
+            + `(message limit 2000). Run the long-run probe to confirm runs of that length survive, `
+            + `and check the result on a client without the plugin (or with Hide footer off): `
+            + `this probe measures survival, not how other people's fonts render it.`;
     } else if (survivingBases.length === 1) {
         verdict = "one zero-width base survives: sequences of a single character carry no data by "
             + "themselves, but combined with the 16 selectors as marks it may still work. "

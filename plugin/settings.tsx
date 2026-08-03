@@ -48,6 +48,11 @@ export const settings = definePluginSettings({
             { label: "Invisible: nothing visible at all; works for any message length", value: "hidden" }
         ]
     },
+    chatBarLock: {
+        type: OptionType.BOOLEAN,
+        description: "Show a lock in the chat bar that toggles signing",
+        default: true
+    },
     signChannels: {
         type: OptionType.SELECT,
         description: "Where to sign",

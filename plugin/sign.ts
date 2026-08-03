@@ -11,7 +11,7 @@
 import { ChannelStore } from "@webpack/common";
 
 import { getBackend, logger } from "./crypto/backend";
-import { attachFooter, embedHidden, encodeFooter, stripTrailingFooters } from "./crypto/footer";
+import { attachFooter, embedHidden, encodeFooter, stripHidden, stripTrailingFooters } from "./crypto/footer";
 import { compress } from "./crypto/packet";
 import { buildPayload, canonicalizeContent, type PayloadMode } from "./crypto/payload";
 import { settings } from "./settings";
@@ -67,7 +67,15 @@ export async function signContent(
     messageId: string | null,
     rawContent: string
 ): Promise<SignedMessage> {
-    const content = canonicalizeContent(stripTrailingFooters(rawContent));
+    const style = (settings.store.footerStyle ?? "subtext") as FooterStyle;
+
+    // The hidden run is built from zero-width characters that also occur in
+    // ordinary text (ZWNJ shapes Persian words, ZWSP rides along in pasted
+    // prose). Hidden mode strips them from the wire, so they must be stripped
+    // before signing too: the signed text and the sent text have to be one
+    // string, or the signature covers characters that never travel.
+    const stripped = stripTrailingFooters(rawContent);
+    const content = canonicalizeContent(style === "hidden" ? stripHidden(stripped) : stripped);
     const signedTsMs = Date.now();
     const payload = buildPayload(mode, authorId, channelId, messageId, signedTsMs, content);
 
@@ -85,14 +93,13 @@ export async function signContent(
         }
     }
 
-    const style = (settings.store.footerStyle ?? "subtext") as FooterStyle;
-
     if (style === "hidden") {
         const embedded = embedHidden(content, signedTsMs, blob);
         // The appended run eats into Discord's 2000-character message limit;
         // past it the run would be truncated and the message arrive unsigned.
-        if (embedded.length > 2000)
-            throw new Error(`message too long for an invisible footer (the run needs ${embedded.length - content.length} characters)`);
+        // Discord counts codepoints, so astral characters count once.
+        if ([...embedded].length > 2000)
+            throw new Error(`message too long for an invisible footer (the run needs ${[...embedded].length - [...content].length} characters)`);
         return { content: embedded, signedTsMs, mode: used, footer: "" };
     }
 

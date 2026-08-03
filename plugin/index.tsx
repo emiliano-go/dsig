@@ -21,6 +21,7 @@ import definePlugin from "@utils/types";
 import { FluxDispatcher, React, Toasts, UserStore } from "@webpack/common";
 
 import { Badge } from "./components/Badge";
+import { LockIcon, SignToggle } from "./components/SignToggle";
 import { logger } from "./crypto/backend";
 import { stripTrailingFooters } from "./crypto/footer";
 import { isProbe, isProbe2 } from "./crypto/probe";
@@ -130,6 +131,13 @@ export default definePlugin({
     ],
 
     stripFooterNodes,
+
+    // The chat bar lock: closed = outgoing messages are signed, open = they
+    // are not; clicking toggles it without a trip to the settings panel.
+    chatBarButton: {
+        icon: LockIcon,
+        render: SignToggle
+    },
 
     async start() {
         await Promise.all([loadPeers(), loadCache()]).catch(e => logger.error("failed to load stored data", e));

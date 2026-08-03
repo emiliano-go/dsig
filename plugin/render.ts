@@ -14,15 +14,16 @@
 
 import { React } from "@webpack/common";
 
-import { FOOTER_RE, HIDDEN_ANYWHERE_G } from "./crypto/footer";
+import { FOOTER_RE, HIDDEN_ALPHABET_RE_G } from "./crypto/footer";
 
 const FOOTER_ANYWHERE = new RegExp(`\\n?${FOOTER_RE.source}`, "gm");
 
 // Hidden footers draw nothing, so this is only about copying: the appended
-// run of zero-width characters comes out, a lone selector is somebody's emoji
-// and stays.
+// run of zero-width characters comes out. Variation selectors stay; a
+// selector in rendered text is somebody's emoji presentation, not ours, and
+// stripping it would change how a copied emoji pastes.
 function stripString(s: string): string {
-    return s.replace(FOOTER_ANYWHERE, "").replace(HIDDEN_ANYWHERE_G, "");
+    return s.replace(FOOTER_ANYWHERE, "").replace(HIDDEN_ALPHABET_RE_G, "");
 }
 
 function walk(node: any): any {

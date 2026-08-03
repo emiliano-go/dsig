@@ -37,10 +37,10 @@ describe("footer", () => {
     });
 
     it("stays under the hidden overhead", () => {
-        // 72 blob bytes ride in a framed 82-byte stream; at three bits per
-        // symbol that is 219 zero-width characters.
+        // 72 blob bytes ride in a framed 82-byte stream; at two bits per
+        // symbol that is 328 zero-width characters.
         const wire = embedHidden("x", 1, sample);
-        assert.ok(wire.length <= 220, `wire is ${wire.length} chars`);
+        assert.ok(wire.length <= 330, `wire is ${wire.length} chars`);
     });
 
     it("preserves multiline bodies exactly", () => {
@@ -144,10 +144,19 @@ describe("the hidden footer", () => {
         assert.equal(parsed!.body, long, "the text comes back exactly");
     });
 
-    it("adds nothing but zero-width symbols", () => {
+    it("adds nothing but zero-width symbols and one separator space", () => {
         const wire = embedHidden(long, ts, sample)!;
         assert.notEqual(wire, long);
-        assert.equal(wire.replace(/[\u1160\u115F\uFFA0\u2060\u2062\u200B\u200C\u180E]/g, ""), long, "not one visible character was added");
+        assert.equal(wire.replace(/[\u200B\u200C\u2060\u2062]/g, ""), long + " ", "nothing visible beyond the separator was added");
+    });
+
+    it("keeps a trailing url clickable", () => {
+        // Discord's link parser swallows invisible characters glued to a
+        // trailing URL into the link target; the separator space stops it.
+        const url = "https://github.com/emiliano-go/dsig";
+        const wire = embedHidden("release: " + url, ts, sample)!;
+        assert.equal(wire[wire.indexOf(url) + url.length], " ", "a space must separate the url from the run");
+        assert.equal(extractFooter(wire)!.body, "release: " + url);
     });
 
     it("hides a signature in a message of any length", () => {
@@ -170,15 +179,26 @@ describe("the hidden footer", () => {
             assert.ok(wire.includes(fragment), `${fragment} was written into`);
     });
 
-    it("strips back to the original text", () => {
-        assert.equal(stripHidden(embedHidden(long, ts, sample)!), long);
+    it("is made only of format characters that are zero-width by definition", () => {
+        // The v3 alphabet included hangul fillers: no ink, but a letter's
+        // advance width in the fallback fonts of clients without the plugin,
+        // so the run showed as lines of blank space. Only Cf controls whose
+        // zero width is definitional may carry the run.
+        const SAFE = new Set([0x200B, 0x200C, 0x2060, 0x2062]);
+        for (const ch of embedHidden("", ts, sample))
+            assert.ok(SAFE.has(ch.codePointAt(0)!), `U+${ch.codePointAt(0)!.toString(16).toUpperCase()} is not a safe carrier`);
+    });
+
+    it("strips back to the original text plus the separator", () => {
+        assert.equal(stripHidden(embedHidden(long, ts, sample)!), long + " ");
     });
 
     it("replaces its own footer instead of stacking a second one", () => {
         const once = embedHidden(long, ts, sample)!;
         const twice = embedHidden(once, ts + 1000, sample)!;
         assert.equal(extractFooter(twice)?.signedTsMs, ts + 1000);
-        assert.equal(stripHidden(twice), long);
+        // The separator does not accumulate across re-embeds either.
+        assert.equal(stripHidden(twice), long + " ");
     });
 
     it("is not confused by a selector the user typed", () => {
@@ -200,7 +220,7 @@ describe("the hidden footer", () => {
         // do it.
         let toDrop = 40;
         const cut = [...wire].reverse().filter(ch => {
-            if (toDrop > 0 && /[\u1160\u115F\uFFA0\u2060\u2062\u200B\u200C\u180E]/.test(ch)) { toDrop--; return false; }
+            if (toDrop > 0 && /[\u200B\u200C\u2060\u2062]/.test(ch)) { toDrop--; return false; }
             return true;
         }).reverse().join("");
 

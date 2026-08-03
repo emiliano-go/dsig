@@ -11,6 +11,7 @@ export const defaults = {
     signingKey: "",
     signMode: "compact",
     footerStyle: "subtext",
+    chatBarLock: true,
     signChannels: "all",
     channelAllowlist: "",
     verifyIncoming: true,
