@@ -2,22 +2,25 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    height: 15px;
+    height: 16.5px;
     padding: 0 4px;
-    margin-left: 4px;
+    margin: -4px 0 0 6px;
+    margin-inline-start: 6px;
     border-radius: 4px;
-    font-size: 10px;
+    font-size: 12px;
+    font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
     font-weight: 600;
-    line-height: 15px;
+    line-height: 0px;
     text-transform: uppercase;
-    vertical-align: top;
+    vertical-align: middle;
     cursor: help;
     background: var(--background-modifier-hover, rgb(255 255 255 / 6%));
     color: var(--dsig-color);
 }
 
 .vc-dsig-badge svg {
-    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
 }
 
 .vc-dsig-badge--icon {
