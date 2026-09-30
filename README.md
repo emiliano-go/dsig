@@ -627,7 +627,7 @@ Re-run the installer; it is the same command as the first time:
 Close Vesktop first, and start it again afterwards.
 
 Because Vesktop's *Vencord Location* now points at your own build, Vesktop no longer updates
-Vencord for you — the installer does. In the checkout it cloned itself it pulls upstream Vencord
+Vencord for you; the installer does. In the checkout it cloned itself it pulls upstream Vencord
 before rebuilding; in a checkout you passed in, it never runs git at all, so update that one
 yourself:
 
